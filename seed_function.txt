@@ -1,0 +1,2606 @@
+1) CREATE OR REPLACE FUNCTION evik_platform.seed_chat_message_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default welcome chat message
+    INSERT INTO evik_core.chat_message (
+        tenant_id,
+        session_id,
+        direction,
+        sender_type,
+        content,
+        metadata,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- new session id
+        'outgoing',         -- default direction
+        'system',           -- sender type
+        'Welcome to chat!', -- default content
+        '{}'::jsonb,        -- empty metadata
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+SELECT evik_platform.seed_chat_message_defaults();
+
+2) CREATE OR REPLACE FUNCTION evik_platform.seed_contacts_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default contact for this tenant
+    INSERT INTO evik_core.contacts (
+        tenant_id,
+        core_first_name,
+        core_last_name,
+        core_email,
+        core_phone,
+        language_preference,
+        industry_fields,
+        tags,
+        source,
+        dsar_locked,
+        retention_expiry_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'Default',                  -- core_first_name
+        'Contact',                  -- core_last_name
+        'default@example.com',      -- core_email
+        '+0000000000',              -- core_phone
+        'en',                       -- language_preference
+        '{}'::jsonb,                -- industry_fields
+        '{}'::jsonb,                -- tags
+        'import',                   -- source (must match check constraint)
+        false,                      -- dsar_locked
+        NULL,                       -- retention_expiry_at
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_contacts_defaults();
+
+3) CREATE OR REPLACE FUNCTION evik_platform.seed_chat_session_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default chat session for this tenant
+    INSERT INTO evik_core.chat_session (
+        tenant_id,
+        channel_id,
+        contact_id,
+        started_at,
+        ended_at,
+        status,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- placeholder channel_id
+        NULL,               -- no contact linked yet
+        now(),              -- started_at defaults to now
+        NULL,               -- ended_at not set initially
+        'in_progress',      -- must match check constraint
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_chat_session_defaults();
+
+4) CREATE OR REPLACE FUNCTION evik_platform.seed_chat_channel_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default chat channel for this tenant
+    INSERT INTO evik_core.chat_channel (
+        tenant_id,
+        channel_type,
+        label,
+        entry_workflow_id,
+        persona_id,
+        integration_config_id,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'webchat',   -- must match check constraint
+        'Default Webchat Channel', -- label
+        NULL,        -- entry_workflow_id not set initially
+        NULL,        -- persona_id not set initially
+        NULL,        -- integration_config_id not set initially
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_chat_channel_defaults();
+
+5) CREATE OR REPLACE FUNCTION evik_platform.seed_call_session_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default call session for this tenant
+    INSERT INTO evik_core.call_session (
+        tenant_id,
+        entry_point_id,
+        contact_id,
+        direction,
+        status,
+        started_at,
+        ended_at,
+        recording_reference,
+        transcript_reference,
+        sentiment_overall,
+        metadata,
+        dsar,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- placeholder entry_point_id
+        NULL,               -- no contact linked yet
+        'inbound',          -- must match direction check constraint
+        'ringing',          -- must match status check constraint
+        now(),              -- started_at defaults to now
+        NULL,               -- ended_at not set initially
+        NULL,               -- recording_reference not set initially
+        NULL,               -- transcript_reference not set initially
+        NULL,               -- sentiment_overall not set initially
+        '{}'::jsonb,        -- empty metadata
+        '{}'::jsonb,        -- empty dsar
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+
+select evik_platform.seed_call_session_defaults();
+
+6) CREATE OR REPLACE FUNCTION evik_platform.seed_voice_entry_point_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default voice entry point for this tenant
+    INSERT INTO evik_core.voice_entry_point (
+        tenant_id,
+        phone_number,
+        label,
+        default_workflow_id,
+        language,
+        timezone,
+        business_hours_profile_id,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        '+10000000000',  -- placeholder phone number
+        'Default Voice Entry Point', -- label
+        NULL,            -- default_workflow_id not set initially
+        'en',            -- default language
+        'UTC',           -- default timezone
+        NULL,            -- business_hours_profile_id not set initially
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_voice_entry_point_defaults();
+
+7) CREATE OR REPLACE FUNCTION evik_platform.seed_appointment_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_start  timestamptz;
+    v_end    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Define start and end times (end_time must be greater than start_time)
+    v_start := now() + interval '1 day';       -- appointment scheduled for tomorrow
+    v_end   := v_start + interval '1 hour';    -- 1-hour duration
+
+    -- Insert a default appointment for this tenant
+    INSERT INTO evik_core.appointment (
+        tenant_id,
+        contact_id,
+        service_id,
+        provider_id,
+        location_id,
+        start_time,
+        end_time,
+        status,
+        source,
+        notes,
+        industry_context,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- placeholder contact_id
+        gen_random_uuid(),  -- placeholder service_id
+        gen_random_uuid(),  -- placeholder provider_id
+        gen_random_uuid(),  -- placeholder location_id
+        v_start,
+        v_end,
+        'scheduled',        -- valid default from appointment_status
+        'import',           -- valid default from appointment_source
+        'Default seeded appointment', -- notes
+        NULL,               -- industry_context not set initially
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+select evik_platform.seed_appointment_defaults();
+
+8) CREATE OR REPLACE FUNCTION evik_platform.seed_service_type_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default service type for this tenant
+    INSERT INTO evik_core.service_type (
+        tenant_id,
+        name,
+        description,
+        duration_minutes,
+        category,
+        industry_tags,
+        is_emergency,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'Default Service',           -- name
+        'Seeded default service type', -- description
+        30,                          -- duration_minutes (must be > 0)
+        'General',                   -- category
+        '{}'::jsonb,                 -- empty industry_tags
+        false,                       -- is_emergency
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_service_type_defaults()
+
+9) CREATE OR REPLACE FUNCTION evik_platform.seed_lead_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default lead for this tenant
+    INSERT INTO evik_core.lead (
+        tenant_id,
+        contact_id,
+        pipeline_id,
+        current_stage_id,
+        score_numeric,
+        status,
+        source,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- placeholder contact_id
+        gen_random_uuid(),  -- placeholder pipeline_id
+        gen_random_uuid(),  -- placeholder current_stage_id
+        50,                 -- example score_numeric
+        'open',             -- valid default from lead_status
+        'import',           -- valid default from lead_source
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_lead_defaults();
+
+10) CREATE OR REPLACE FUNCTION evik_platform.seed_interactions_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default interaction for this tenant
+    INSERT INTO evik_core.interactions (
+        tenant_id,
+        contact_id,
+        interaction_type,
+        channel,
+        external_reference,
+        actor_id,
+        summary,
+        sentiment,
+        metadata,
+        notes,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),  -- placeholder contact_id
+        'call',             -- must match interaction_type check constraint
+        'voice',            -- must match channel check constraint
+        'REF-DEFAULT-001',  -- example external reference
+        gen_random_uuid(),  -- placeholder actor_id
+        'Default seeded interaction', -- summary
+        'neutral',          -- must match sentiment check constraint
+        '{}'::jsonb,        -- empty metadata
+        'Seeded notes for default interaction', -- notes
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_interactions_defaults();
+
+
+11) CREATE OR REPLACE FUNCTION evik_platform.seed_workflow_instance_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default workflow instance for this tenant
+    INSERT INTO evik_platform.workflow_instance (
+        tenant_id,
+        template_key,
+        template_version,
+        state,
+        context,
+        started_at,
+        ended_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'default_template',   -- template_key placeholder
+        1,                    -- template_version placeholder
+        'running',            -- must match state check constraint
+        '{}'::jsonb,          -- empty context
+        now(),                -- started_at defaults to now
+        NULL,                 -- ended_at not set initially
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_workflow_instance_defaults();
+
+12) CREATE OR REPLACE FUNCTION evik_platform.seed_workflow_states_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default workflow state for this tenant
+    INSERT INTO evik_platform.workflow_states (
+        tenant_id,
+        current_state,
+        actor_id,
+        updated_at,
+        template_key,
+        version,
+        workflow_engine_id,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'running',           -- example current_state
+        gen_random_uuid(),   -- placeholder actor_id
+        now(),               -- updated_at defaults to now
+        'default_template',  -- template_key placeholder
+        1,                   -- version placeholder
+        gen_random_uuid(),   -- placeholder workflow_engine_id
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_workflow_states_defaults();
+
+13) CREATE OR REPLACE FUNCTION evik_platform.seed_user_sessions_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default user session for this tenant
+    INSERT INTO evik_platform.user_sessions (
+        user_id,
+        tenant_id,
+        device_id,
+        issued_at,
+        expires_at,
+        revoked,
+        ip_address,
+        user_agent,
+        created_at
+    )
+    VALUES (
+        gen_random_uuid(),  -- placeholder user_id
+        v_tenant,
+        NULL,               -- device_id not set initially
+        v_now,              -- issued_at defaults to now
+        v_now + interval '1 hour', -- expires_at set to 1 hour later
+        false,              -- revoked = false
+        '127.0.0.1',        -- placeholder IP address
+        'Seeded default user agent', -- placeholder user_agent
+        v_now               -- created_at defaults to now
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_user_sessions_defaults();
+
+14) CREATE OR REPLACE FUNCTION evik_platform.seed_command_log_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default command log entry for this tenant
+    INSERT INTO evik_platform.command_log (
+        correlation_id,
+        tenant_id,
+        actor_id,
+        command_name,
+        payload,
+        created_at
+    )
+    VALUES (
+        gen_random_uuid(),  -- placeholder correlation_id
+        v_tenant,
+        gen_random_uuid(),  -- placeholder actor_id
+        'SeededCommand',    -- example command_name
+        '{}'::jsonb,        -- empty payload
+        now()               -- created_at defaults to now
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_command_log_defaults();
+
+15) CREATE OR REPLACE FUNCTION evik_platform.seed_user_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    -- Insert a default user metadata record for this tenant
+    INSERT INTO evik_platform.user_metadata (
+        user_id,
+        tenant_id,
+        department,
+        clearance,
+        country,
+        created_at
+    )
+    VALUES (
+        gen_random_uuid(),  -- placeholder user_id
+        v_tenant,
+        'Default Department', -- example department
+        'medium',             -- must match clearance check constraint
+        'IN',                 -- example country code (ISO, e.g. India)
+        now()                 -- created_at defaults to now
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_user_metadata_defaults();
+
+16) CREATE OR REPLACE FUNCTION evik_platform.seed_user_account_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default user account for this tenant
+    INSERT INTO evik_platform.user_account (
+        tenant_id,
+        email,
+        name,
+        phone,
+        status,
+        last_login_at,
+        mfa_enabled,
+        created_at,
+        updated_at,
+        dsar_locked
+    )
+    VALUES (
+        v_tenant,
+        'default.user@example.com', -- must be unique
+        'Default User',             -- name
+        '+10000000000',             -- placeholder phone
+        'active',                   -- must match status check constraint
+        NULL,                       -- last_login_at not set initially
+        false,                      -- MFA disabled by default
+        v_now,                      -- created_at
+        v_now,                      -- updated_at
+        true                        -- dsar_locked default
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_user_account_defaults();
+
+
+17) CREATE OR REPLACE FUNCTION evik_platform.seed_tenants_defaults()
+RETURNS void AS $$
+DECLARE
+    v_now timestamptz;
+BEGIN
+    v_now := now();
+
+    -- Insert a default tenant record
+    INSERT INTO evik_platform.tenants (
+        tenant_name,
+        primary_contact_name,
+        primary_contact_email,
+        country_code,
+        region_cluster,
+        default_language,
+        time_zone,
+        tier_enum,
+        status_enum,
+        industry_primary_id,
+        industry_id,
+        created_at,
+        updated_at,
+        version,
+        valid_from,
+        valid_to,
+        dsar_locked,
+        tenant_id,
+        region_code,
+        language_code
+    )
+    VALUES (
+        'Default Tenant',            -- tenant_name
+        'Default Contact',           -- primary_contact_name
+        'default.tenant@example.com',-- must be unique
+        'IN',                        -- country_code (ISO)
+        'APAC',                      -- region_cluster placeholder
+        'en',                        -- default_language
+        'UTC',                       -- time_zone
+        'free',                      -- must match tier_enum check constraint
+        'trial',                     -- must match status_enum check constraint
+        gen_random_uuid(),           -- placeholder industry_primary_id
+        gen_random_uuid(),           -- placeholder industry_id
+        v_now,                       -- created_at
+        v_now,                       -- updated_at
+        1,                           -- version default
+        v_now,                       -- valid_from
+        NULL,                        -- valid_to not set initially
+        true,                        -- dsar_locked default
+        gen_random_uuid(),           -- tenant_id
+        'AP',                        -- region_code placeholder
+        'EN'                         -- language_code placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+select evik_platform.seed_tenants_defaults();
+
+18) CREATE OR REPLACE FUNCTION evik_platform.seed_tenant_registry_defaults()
+RETURNS void AS $$
+DECLARE
+    v_now timestamptz;
+BEGIN
+    v_now := now();
+
+    -- Insert a default tenant registry record
+    INSERT INTO evik_platform.tenant_registry (
+        tenant_id,
+        name,
+        code,
+        status,
+        created_at,
+        created_by,
+        updated_at,
+        dsar_locked,
+        data_residency
+    )
+    VALUES (
+        gen_random_uuid(),           -- tenant_id
+        'Default Tenant Registry',   -- name
+        'DEFAULT_CODE',              -- must be unique
+        'active',                    -- valid status
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        v_now,                       -- updated_at
+        false,                       -- dsar_locked default
+        'US'                         -- must match data_residency check constraint
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_tenant_registry_defaults();
+
+19) CREATE OR REPLACE FUNCTION evik_platform.seed_tenant_profile_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default tenant profile record
+    INSERT INTO evik_platform.tenant_profile (
+        tenant_id,
+        industry_code,
+        country_code,
+        language_code,
+        metadata,
+        dsar_locked,
+        created_at,
+        updated_at
+    )
+    VALUES (
+        v_tenant,
+        'GEN',                  -- example industry_code placeholder
+        'IN',                   -- example country_code (ISO code for India)
+        'EN',                   -- example language_code
+        '{}'::jsonb,            -- empty metadata
+        false,                  -- dsar_locked default
+        v_now,                  -- created_at
+        v_now                   -- updated_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_tenant_profile_defaults();
+
+20) CREATE OR REPLACE FUNCTION evik_platform.seed_tenant_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default tenant metadata record
+    INSERT INTO evik_platform.tenant_metadata (
+        tenant_id,
+        country,
+        industry,
+        tier,
+        region,
+        created_at
+    )
+    VALUES (
+        v_tenant,
+        'IN',                  -- example country code (ISO, India)
+        'General',             -- example industry placeholder
+        'free',                -- must match tier check constraint
+        'APAC',                -- example region placeholder
+        v_now                  -- created_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_tenant_metadata_defaults();
+
+21) CREATE OR REPLACE FUNCTION evik_platform.seed_tenant_commands_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default tenant command record
+    INSERT INTO evik_platform.tenant_commands (
+        tenant_id,
+        command_type,
+        payload,
+        version_number,
+        issued_by,
+        issued_at,
+        status,
+        reason,
+        error_code
+    )
+    VALUES (
+        v_tenant,
+        'SeededCommandType',   -- example command_type placeholder
+        '{}'::jsonb,           -- empty payload
+        1,                     -- version_number placeholder
+        'system',              -- issued_by placeholder
+        v_now,                 -- issued_at defaults to now
+        'accepted',            -- must match status check constraint
+        'Initial seed command',-- reason placeholder
+        NULL                   -- error_code not set initially
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_tenant_commands_defaults();
+
+22) CREATE OR REPLACE FUNCTION evik_platform.seed_template_version_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template version record
+    INSERT INTO evik_platform.template_version (
+        template_id,
+        version_number,
+        schema,
+        status,
+        dsar_locked,
+        created_at,
+        created_by,
+        tenant_id
+    )
+    VALUES (
+        gen_random_uuid(),           -- placeholder template_id
+        1,                           -- version_number placeholder
+        '{}'::jsonb,                 -- empty schema
+        'active',                    -- valid status
+        false,                       -- dsar_locked default
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        v_tenant                     -- tenant_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_version_defaults();
+
+23) CREATE OR REPLACE FUNCTION evik_platform.seed_template_tenant_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template-tenant record
+    INSERT INTO evik_platform.template_tenant (
+        tenant_id,
+        template_key,
+        version,
+        overlay_body,
+        created_at,
+        updated_at
+    )
+    VALUES (
+        v_tenant,
+        'default_template',   -- template_key placeholder
+        1,                    -- version default
+        '{}'::jsonb,          -- empty overlay_body
+        v_now,                -- created_at
+        v_now                 -- updated_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_tenant_defaults();
+
+
+24) CREATE OR REPLACE FUNCTION evik_platform.seed_template_registry_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template registry record
+    INSERT INTO evik_platform.template_registry (
+        tenant_id,
+        name,
+        description,
+        dsar_locked,
+        created_at,
+        created_by,
+        updated_at
+    )
+    VALUES (
+        v_tenant,
+        'Default Template',          -- name placeholder
+        'Seeded template description', -- description placeholder
+        false,                       -- dsar_locked default
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        v_now                        -- updated_at
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_registry_defaults();
+
+25) CREATE OR REPLACE FUNCTION evik_platform.seed_template_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template metadata record
+    INSERT INTO evik_platform.template_metadata (
+        tenant_id,
+        template_id,
+        version,
+        name,
+        description,
+        category,
+        format,
+        content,
+        metadata,
+        created_at,
+        created_by,
+        parent_template_id,
+        inheritance_type,
+        dependencies
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder template_id
+        1,                           -- version placeholder
+        'Default Template',          -- name placeholder
+        'Seeded template metadata description', -- description placeholder
+        'General',                   -- category placeholder
+        'text',                      -- must match format check constraint
+        'This is seeded template content.', -- content placeholder
+        '{}'::jsonb,                 -- empty metadata
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        NULL,                        -- parent_template_id not set initially
+        'extends',                   -- must match inheritance_type check constraint
+        '{}'::jsonb                  -- empty dependencies
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_metadata_defaults();
+
+26) CREATE OR REPLACE FUNCTION evik_platform.seed_template_loader_state_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template loader state record
+    INSERT INTO evik_platform.template_loader_state (
+        template_id,
+        version_id,
+        tenant_id,
+        state,
+        started_at,
+        completed_at,
+        failure_reason,
+        dsar_locked
+    )
+    VALUES (
+        gen_random_uuid(),           -- placeholder template_id
+        gen_random_uuid(),           -- placeholder version_id
+        v_tenant,
+        'running',                   -- example state placeholder
+        v_now,                       -- started_at defaults to now
+        NULL,                        -- completed_at not set initially
+        NULL,                        -- failure_reason not set initially
+        false                        -- dsar_locked default
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_loader_state_defaults();
+
+27) CREATE OR REPLACE FUNCTION evik_platform.seed_template_inheritance_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template inheritance record
+    INSERT INTO evik_platform.template_inheritance (
+        tenant_id,
+        parent_template_id,
+        child_template_id,
+        inheritance_type,
+        created_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder parent_template_id
+        gen_random_uuid(),           -- placeholder child_template_id
+        'extends',                   -- must match inheritance_type check constraint
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_inheritance_defaults();
+
+28) CREATE OR REPLACE FUNCTION evik_platform.seed_template_dependency_graph_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template dependency graph record
+    INSERT INTO evik_platform.template_dependency_graph (
+        tenant_id,
+        source_template_id,
+        dependent_template_id,
+        dependency_type,
+        created_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder source_template_id
+        gen_random_uuid(),           -- placeholder dependent_template_id
+        'uses',                      -- must match dependency_type check constraint
+        v_now,                       -- created_at
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_dependency_graph_defaults();
+
+29) CREATE OR REPLACE FUNCTION evik_platform.seed_template_audit_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default template audit record
+    INSERT INTO evik_platform.template_audit (
+        tenant_id,
+        resource_type,
+        resource_id,
+        action,
+        actor_id,
+        timestamp
+    )
+    VALUES (
+        v_tenant,
+        'template',                  -- resource_type placeholder
+        gen_random_uuid(),           -- placeholder resource_id
+        'create',                    -- example action
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system actor
+        v_now                        -- timestamp defaults to now
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_template_audit_defaults();
+
+30) CREATE OR REPLACE FUNCTION evik_platform.seed_snapshots_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default snapshot record
+    INSERT INTO evik_platform.snapshots (
+        tenant_id,
+        aggregate_id,
+        aggregate_type,
+        version,
+        snapshot_data,
+        created_at
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder aggregate_id
+        'default_aggregate',         -- aggregate_type placeholder
+        1,                           -- version placeholder
+        '{}'::jsonb,                 -- empty snapshot_data
+        v_now                        -- created_at defaults to now
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_snapshots_defaults();
+
+31) CREATE OR REPLACE FUNCTION evik_platform.seed_sector_registry_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default sector registry record
+    INSERT INTO evik_platform.sector_registry (
+        code,
+        name,
+        description,
+        created_at,
+        updated_at,
+        version,
+        is_active,
+        global_id,
+        tenant_id,
+        sector_code
+    )
+    VALUES (
+        'DEFAULT_SECTOR',             -- code placeholder (must be unique)
+        'Default Sector',             -- name placeholder
+        'Seeded sector registry description', -- description placeholder
+        v_now,                        -- created_at
+        v_now,                        -- updated_at
+        1,                            -- version default
+        true,                         -- is_active default
+        gen_random_uuid(),            -- global_id placeholder
+        v_tenant,                     -- tenant_id from context
+        'DEF'                         -- sector_code placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_sector_registry_defaults();
+
+
+32) CREATE OR REPLACE FUNCTION evik_platform.seed_role_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default role metadata record
+    INSERT INTO evik_platform.role_metadata (
+        tenant_id,
+        role_name,
+        description,
+        permissions,
+        created_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'Default Role',              -- role_name placeholder
+        'Seeded role metadata description', -- description placeholder
+        '{}'::jsonb,                 -- empty permissions
+        v_now,                       -- created_at defaults to now
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_role_metadata_defaults(); 
+
+33) CREATE OR REPLACE FUNCTION evik_platform.seed_resources_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default resource record
+    INSERT INTO evik_platform.resources (
+        tenant_id,
+        resource_type,
+        name,
+        description,
+        status,
+        created_by,
+        created_at,
+        updated_at,
+        version,
+        tags
+    )
+    VALUES (
+        v_tenant,
+        'default_type',              -- resource_type placeholder
+        'Default Resource',          -- name placeholder
+        'Seeded resource description', -- description placeholder
+        'active',                    -- must match status check constraint
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        v_now,                       -- created_at
+        v_now,                       -- updated_at
+        1,                           -- version default
+        '{}'::jsonb                  -- empty tags
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_resources_defaults();
+
+34) CREATE OR REPLACE FUNCTION evik_platform.seed_resource_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default resource metadata record
+    INSERT INTO evik_platform.resource_metadata (
+        resource_id,
+        tenant_id,
+        resource_type,
+        sensitivity,
+        industry,
+        country,
+        created_by,
+        created_at,
+        tags,
+        status
+    )
+    VALUES (
+        gen_random_uuid(),           -- placeholder resource_id
+        v_tenant,
+        'default_type',              -- resource_type placeholder
+        'public',                    -- must match sensitivity check constraint
+        'General',                   -- industry placeholder
+        'IN',                        -- country placeholder (ISO code)
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user
+        v_now,                       -- created_at defaults to now
+        '{}'::jsonb,                 -- empty tags
+        'active'                     -- must match status check constraint
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_resource_metadata_defaults();
+
+35) CREATE OR REPLACE FUNCTION evik_platform.seed_masking_metadata_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default masking metadata record
+    INSERT INTO evik_platform.masking_metadata (
+        tenant_id,
+        table_name,
+        column_name,
+        masking_strategy,
+        created_at,
+        created_by
+    )
+    VALUES (
+        v_tenant,
+        'default_table',             -- table_name placeholder
+        'default_column',            -- column_name placeholder
+        'hash',                      -- must match masking_strategy check constraint
+        v_now,                       -- created_at defaults to now
+        '00000000-0000-0000-0000-000000000000'::uuid -- system user
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_masking_metadata_defaults(); 
+
+36) CREATE OR REPLACE FUNCTION evik_platform.seed_graph_node_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default graph node record
+    INSERT INTO evik_platform.graph_node (
+        tenant_id,
+        name,
+        type,
+        created_at,
+        updated_at,
+        version
+    )
+    VALUES (
+        v_tenant,
+        'Default Node',              -- name placeholder
+        'generic',                   -- type placeholder
+        v_now,                       -- created_at defaults to now
+        v_now,                       -- updated_at defaults to now
+        1                            -- version placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_graph_node_defaults();
+
+37) CREATE OR REPLACE FUNCTION evik_platform.seed_graph_edge_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default graph edge record
+    INSERT INTO evik_platform.graph_edge (
+        tenant_id,
+        source_id,
+        target_id,
+        relation,
+        created_at,
+        updated_at,
+        version
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder source_id
+        gen_random_uuid(),           -- placeholder target_id
+        'connects',                  -- relation placeholder
+        v_now,                       -- created_at defaults to now
+        v_now,                       -- updated_at defaults to now
+        1                            -- version placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+select evik_platform.seed_graph_edge_defaults();
+
+38) CREATE OR REPLACE FUNCTION evik_platform.seed_events_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default event record
+    INSERT INTO evik_platform.events (
+        tenant_id,
+        aggregate_id,
+        aggregate_type,
+        event_type,
+        event_data,
+        version,
+        created_at,
+        created_by,
+        sensitivity,
+        correlation_id
+    )
+    VALUES (
+        v_tenant,
+        gen_random_uuid(),           -- placeholder aggregate_id
+        'default_aggregate',         -- aggregate_type placeholder
+        'created',                   -- event_type placeholder
+        '{}'::jsonb,                 -- empty event_data
+        1,                           -- version placeholder
+        v_now,                       -- created_at defaults to now
+        'system',                    -- created_by placeholder
+        'public',                    -- must match sensitivity check constraint
+        gen_random_uuid()            -- correlation_id placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_events_defaults();
+
+39) CREATE OR REPLACE FUNCTION evik_platform.seed_command_audit_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default command audit record
+    INSERT INTO evik_platform.command_audit (
+        tenant_id,
+        user_id,
+        command_text,
+        command_type,
+        version,
+        executed_at,
+        success
+    )
+    VALUES (
+        v_tenant,
+        '00000000-0000-0000-0000-000000000000'::uuid, -- system user placeholder
+        'SEED_COMMAND',             -- command_text placeholder
+        'system',                   -- command_type placeholder
+        1,                          -- version placeholder
+        v_now,                      -- executed_at defaults to now
+        true                        -- success placeholder
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_command_audit_defaults();
+
+40) CREATE OR REPLACE FUNCTION evik_platform.seed_auth_user_defaults()
+RETURNS void AS $$
+DECLARE
+    v_tenant uuid;
+    v_now    timestamptz;
+BEGIN
+    -- Get the current tenant context
+    v_tenant := evik_platform.get_tenant_context();
+    v_now    := now();
+
+    -- Insert a default auth user record
+    INSERT INTO evik_platform.auth_user (
+        tenant_id,
+        username,
+        email,
+        password_hash,
+        status,
+        created_at,
+        last_login_at,
+        dsar_locked
+    )
+    VALUES (
+        v_tenant,
+        'default_user',              -- username placeholder
+        'default@example.com',       -- email placeholder
+        'hashed_password_placeholder', -- password_hash placeholder
+        'active',                    -- must match status check constraint
+        v_now,                       -- created_at defaults to now
+        NULL,                        -- last_login_at initially null
+        true                         -- dsar_locked default
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+select evik_platform.seed_auth_user_defaults(); 
+
+41) user_role
+
+DROP FUNCTION IF EXISTS evik_platform.seed_user_role_defaults();
+
+CREATE OR REPLACE FUNCTION evik_platform.seed_user_role_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant uuid;
+    v_user   uuid;
+    v_role   uuid;
+BEGIN
+    -- Get tenant context (MANDATORY for RLS)
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    /*
+      NOTE:
+      These UUIDs should be deterministic for audit testing.
+      Replace them with your actual seeded IDs if needed.
+    */
+    v_user := '11111111-1111-1111-1111-111111111111';
+    v_role := '22222222-2222-2222-2222-222222222222';
+
+    -- Insert only if not already present (idempotent seed)
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_platform.user_role
+        WHERE user_id = v_user
+    ) THEN
+        INSERT INTO evik_platform.user_role (
+            user_id,
+            tenant_id,
+            role_id,
+            assigned_at
+        )
+        VALUES (
+            v_user,
+            v_tenant,
+            v_role,
+            now()
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+-- Set tenant context BEFORE running
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+SELECT evik_platform.seed_user_role_defaults();
+
+42) user_role_map
+
+DROP FUNCTION IF EXISTS evik_platform.seed_user_role_map_defaults();
+
+CREATE OR REPLACE FUNCTION evik_platform.seed_user_role_map_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant uuid;
+    v_user   uuid;
+    v_role   uuid;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    /*
+      ✅ Fetch existing user (must exist due to FK)
+      We pick a deterministic one for repeatability
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'No auth_user found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Fetch existing role (must exist due to FK)
+    */
+    SELECT role_id
+    INTO v_role
+    FROM evik_platform.role_metadata
+    WHERE tenant_id = v_tenant
+    LIMIT 1;
+
+    IF v_role IS NULL THEN
+        RAISE EXCEPTION 'No role_metadata found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Idempotent insert (avoid duplicates)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_platform.user_role_map
+        WHERE tenant_id = v_tenant
+          AND user_id   = v_user
+          AND role_id   = v_role
+    ) THEN
+        INSERT INTO evik_platform.user_role_map (
+            tenant_id,
+            user_id,
+            role_id,
+            assigned_at
+        )
+        VALUES (
+            v_tenant,
+            v_user,
+            v_role,
+            now()
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+
+-- 1. Set tenant
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+-- 2. Seed user first
+SELECT evik_platform.seed_auth_user_defaults();
+
+-- 3. Ensure role exists (you must already have this)
+-- (or create separate role seed)
+
+-- 4. Seed mapping
+SELECT evik_platform.seed_user_role_map_defaults();
+
+43) user_tenant_map
+
+DROP FUNCTION IF EXISTS evik_platform.seed_user_tenant_map_defaults();
+
+CREATE OR REPLACE FUNCTION evik_platform.seed_user_tenant_map_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant uuid;
+    v_user   uuid;
+    v_db_role text;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement (recommended)
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Deterministic DB role name per tenant
+      (ensures uniqueness across system)
+    */
+    v_db_role := 'tenant_role_' || replace(v_tenant::text, '-', '');
+
+    /*
+      ✅ Get a user if exists (optional column)
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    /*
+      ✅ Idempotent insert
+      Respect UNIQUE(tenant_id) + UNIQUE(db_role)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map
+        WHERE tenant_id = v_tenant
+    ) THEN
+        INSERT INTO evik_platform.user_tenant_map (
+            tenant_id,
+            db_role,
+            user_id,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            v_db_role,
+            v_user,
+            now()
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SELECT evik_platform.seed_user_tenant_map_defaults();
+
+44) booking
+
+DROP FUNCTION IF EXISTS evik_core.seed_booking_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_booking_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_user          uuid;
+    v_contact       uuid;
+    v_start_time    timestamptz;
+    v_end_time      timestamptz;
+    v_corr_id       text;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get a deterministic user (created_by)
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'No auth_user found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Get a contact (REQUIRED FK in your system)
+      Replace table if different (e.g., evik_core.contact)
+    */
+    SELECT contact_id
+    INTO v_contact
+    FROM evik_core.contact
+    WHERE tenant_id = v_tenant
+    LIMIT 1;
+
+    IF v_contact IS NULL THEN
+        RAISE EXCEPTION 'No contact found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Deterministic timestamps
+    */
+    v_start_time := now() + interval '1 hour';
+    v_end_time   := v_start_time + interval '30 minutes';
+
+    /*
+      ✅ Deterministic correlation ID
+    */
+    v_corr_id := 'seed-booking-' || replace(v_tenant::text, '-', '');
+
+    /*
+      ✅ Idempotent insert
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.booking
+        WHERE tenant_id = v_tenant
+          AND correlation_id = v_corr_id
+    ) THEN
+        INSERT INTO evik_core.booking (
+            tenant_id,
+            correlation_id,
+            contact_id,
+            resource_id,
+            start_time_utc,
+            end_time_utc,
+            original_tz,
+            status,
+            reschedule_count,
+            cancelled_reason,
+            metadata,
+            created_at,
+            created_by
+        )
+        VALUES (
+            v_tenant,
+            v_corr_id,
+            v_contact,
+            NULL, -- optional
+            v_start_time,
+            v_end_time,
+            'UTC',
+            'created', -- must match check constraint
+            0,
+            NULL,
+            '{}'::jsonb,
+            now(),
+            v_user
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- 1. Seed user
+SELECT evik_platform.seed_auth_user_defaults();
+-- 2. Seed contact (you must have this)
+-- SELECT evik_core.seed_contact_defaults();
+-- 3. Seed booking
+SELECT evik_core.seed_booking_defaults();
+
+45) booking_event
+
+DROP FUNCTION IF EXISTS evik_core.seed_booking_event_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_booking_event_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_corr_id       text;
+    v_booking_id    uuid;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Fetch existing booking (deterministic)
+    */
+    SELECT id, correlation_id
+    INTO v_booking_id, v_corr_id
+    FROM evik_core.booking
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_booking_id IS NULL THEN
+        RAISE EXCEPTION 'No booking found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Idempotent insert
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.booking_event
+        WHERE tenant_id = v_tenant
+          AND correlation_id = v_corr_id
+          AND event_name = 'booking.created'
+    ) THEN
+        INSERT INTO evik_core.booking_event (
+            tenant_id,
+            correlation_id,
+            command_name,
+            event_name,
+            payload,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            v_corr_id,
+            'create_booking',              -- command
+            'booking.created',             -- event
+            jsonb_build_object(
+                'booking_id', v_booking_id,
+                'status', 'created',
+                'source', 'seed'
+            ),
+            now()
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- 1. Seed user
+SELECT evik_platform.seed_auth_user_defaults();
+-- 2. Seed contact
+-- SELECT evik_core.seed_contact_defaults();
+-- 3. Seed booking
+SELECT evik_core.seed_booking_defaults();
+-- 4. Seed booking event
+SELECT evik_core.seed_booking_event_defaults();
+
+46) inbox_conversation
+
+DROP FUNCTION IF EXISTS evik_core.seed_inbox_conversation_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_inbox_conversation_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_user          uuid;
+    v_corr_id       text;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get deterministic user (created_by)
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'No auth_user found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Deterministic correlation_id (UNIQUE per tenant)
+    */
+    v_corr_id := 'seed-conv-' || replace(v_tenant::text, '-', '');
+
+    /*
+      ✅ Idempotent insert
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.inbox_conversation
+        WHERE tenant_id = v_tenant
+          AND correlation_id = v_corr_id
+    ) THEN
+        INSERT INTO evik_core.inbox_conversation (
+            tenant_id,
+            correlation_id,
+            status,
+            assignment_status,
+            assigned_to,
+            assigned_at,
+            sla_deadline,
+            priority,
+            consent_status,
+            compliance_flag,
+            redaction_flag,
+            identity_resolution_status,
+            created_at,
+            created_by
+        )
+        VALUES (
+            v_tenant,
+            v_corr_id,
+            'open',                -- ✅ valid status
+            'unassigned',          -- ✅ valid assignment_status
+            NULL,                  -- not assigned yet
+            NULL,
+            now() + interval '4 hours', -- SLA
+            3,                     -- within 1–5 constraint
+            'pending',             -- assumed valid (adjust if needed)
+            false,
+            false,
+            'unresolved',          -- optional
+            now(),
+            v_user
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- Ensure user exists
+SELECT evik_platform.seed_auth_user_defaults();
+-- Seed conversation
+SELECT evik_core.seed_inbox_conversation_defaults();
+
+47) inbox_message
+
+DROP FUNCTION IF EXISTS evik_core.seed_inbox_message_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_inbox_message_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_user          uuid;
+    v_conv_id       uuid;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get deterministic user (created_by)
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'No auth_user found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Get existing conversation (FK dependency)
+    */
+    SELECT id
+    INTO v_conv_id
+    FROM evik_core.inbox_conversation
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_conv_id IS NULL THEN
+        RAISE EXCEPTION 'No inbox_conversation found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Idempotent insert (1 message per conversation for seed)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.inbox_message
+        WHERE tenant_id = v_tenant
+          AND conversation_id = v_conv_id
+          AND content = 'Seed message'
+    ) THEN
+        INSERT INTO evik_core.inbox_message (
+            tenant_id,
+            conversation_id,
+            direction,
+            sender_type,
+            content,
+            metadata,
+            intent,
+            sentiment,
+            confidence,
+            compliance_flag,
+            redaction_flag,
+            created_at,
+            created_by
+        )
+        VALUES (
+            v_tenant,
+            v_conv_id,
+            'inbound',            -- ✅ valid (constraint)
+            'customer',           -- ✅ valid (constraint)
+            'Seed message',       -- deterministic
+            '{}'::jsonb,
+            'general_query',      -- optional
+            'neutral',            -- optional
+            0.85,                 -- ✅ within 0–1
+            false,
+            false,
+            now(),
+            v_user
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- 1. User
+SELECT evik_platform.seed_auth_user_defaults();
+-- 2. Conversation
+SELECT evik_core.seed_inbox_conversation_defaults();
+-- 3. Message
+SELECT evik_core.seed_inbox_message_defaults();
+
+48) inbox_routing_log
+
+DROP FUNCTION IF EXISTS evik_core.seed_inbox_routing_log_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_inbox_routing_log_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant    uuid;
+    v_user      uuid;
+    v_conv_id   uuid;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get deterministic user (routed_by)
+    */
+    SELECT user_id
+    INTO v_user
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_user IS NULL THEN
+        RAISE EXCEPTION 'No auth_user found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Get existing conversation (FK dependency)
+    */
+    SELECT id
+    INTO v_conv_id
+    FROM evik_core.inbox_conversation
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_conv_id IS NULL THEN
+        RAISE EXCEPTION 'No inbox_conversation found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Idempotent insert (one routing per conversation for seed)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.inbox_routing_log
+        WHERE tenant_id = v_tenant
+          AND conversation_id = v_conv_id
+    ) THEN
+        INSERT INTO evik_core.inbox_routing_log (
+            tenant_id,
+            conversation_id,
+            from_queue,
+            to_queue,
+            routing_reason,
+            routed_by,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            v_conv_id,
+            'default_queue',     -- initial queue
+            'priority_queue',    -- routed destination
+            'priority escalation (seed)',
+            v_user,
+            now()
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+-- 1. User
+SELECT evik_platform.seed_auth_user_defaults();
+-- 2. Conversation
+SELECT evik_core.seed_inbox_conversation_defaults();
+-- 3. Message
+SELECT evik_core.seed_inbox_message_defaults();
+-- 4. Routing log
+SELECT evik_core.seed_inbox_routing_log_defaults();
+
+49) inbox_assignment_log
+
+DROP FUNCTION IF EXISTS evik_core.seed_inbox_assignment_log_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_inbox_assignment_log_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_user_1        uuid;
+    v_user_2        uuid;
+    v_conv_id       uuid;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Optional role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get 2 deterministic users (assignment scenario)
+    */
+    SELECT user_id
+    INTO v_user_1
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    SELECT user_id
+    INTO v_user_2
+    FROM evik_platform.auth_user
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    OFFSET 1
+    LIMIT 1;
+
+    IF v_user_1 IS NULL THEN
+        RAISE EXCEPTION 'No users found for tenant %', v_tenant;
+    END IF;
+
+    -- fallback if only one user exists
+    IF v_user_2 IS NULL THEN
+        v_user_2 := v_user_1;
+    END IF;
+
+    /*
+      ✅ Get conversation (FK dependency)
+    */
+    SELECT id
+    INTO v_conv_id
+    FROM evik_core.inbox_conversation
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_conv_id IS NULL THEN
+        RAISE EXCEPTION 'No inbox_conversation found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Idempotent insert (only one assignment event per conversation)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.inbox_assignment_log
+        WHERE tenant_id = v_tenant
+          AND conversation_id = v_conv_id
+    ) THEN
+        INSERT INTO evik_core.inbox_assignment_log (
+            tenant_id,
+            conversation_id,
+            previous_assignee,
+            new_assignee,
+            action,
+            created_at,
+            created_by
+        )
+        VALUES (
+            v_tenant,
+            v_conv_id,
+            NULL,                 -- first assignment
+            v_user_1,             -- assigned to user 1
+            'assigned',           -- ✅ valid constraint
+            now(),
+            v_user_1              -- actor
+        );
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SELECT evik_platform.seed_auth_user_defaults();
+SELECT evik_core.seed_inbox_conversation_defaults();
+SELECT evik_core.seed_inbox_message_defaults();
+SELECT evik_core.seed_inbox_routing_log_defaults();
+SELECT evik_core.seed_inbox_assignment_log_defaults();
+
+50) inbox_events
+
+DROP FUNCTION IF EXISTS evik_core.seed_inbox_events_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_inbox_events_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_conv_id       uuid;
+    v_command_id    uuid;
+    v_corr_id       text;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Get conversation (used for correlation)
+    */
+    SELECT id
+    INTO v_conv_id
+    FROM evik_core.inbox_conversation
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_conv_id IS NULL THEN
+        RAISE EXCEPTION 'No inbox_conversation found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Deterministic correlation + command
+    */
+    v_corr_id := 'seed-corr-' || v_conv_id::text;
+    v_command_id := v_conv_id; -- deterministic mapping
+
+    /*
+      ✅ Idempotent: only insert if not exists
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.inbox_events
+        WHERE tenant_id = v_tenant
+          AND correlation_id = v_corr_id
+          AND event_name = 'conversation_created'
+    ) THEN
+
+        INSERT INTO evik_core.inbox_events (
+            tenant_id,
+            correlation_id,
+            command_id,
+            event_name,
+            payload,
+            version,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            v_corr_id,
+            v_command_id,
+            'conversation_created',
+            jsonb_build_object(
+                'conversation_id', v_conv_id,
+                'status', 'open',
+                'source', 'seed',
+                'created_at', now()
+            ),
+            1,
+            now()
+        );
+
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+SELECT evik_platform.seed_auth_user_defaults();
+SELECT evik_core.seed_inbox_conversation_defaults();
+SELECT evik_core.seed_inbox_message_defaults();
+SELECT evik_core.seed_inbox_routing_log_defaults();
+SELECT evik_core.seed_inbox_assignment_log_defaults();
+SELECT evik_core.seed_inbox_events_defaults();
+
+
+
+51) compliance_rule
+
+DROP FUNCTION IF EXISTS evik_core.seed_compliance_rule_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_compliance_rule_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant      uuid;
+    v_rule_code   text := 'DATA_MASKING';
+    v_version     int  := 1;
+    v_rule_def    jsonb;
+    v_rule_hash   text;
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Deterministic rule definition
+    */
+    v_rule_def := jsonb_build_object(
+        'type', 'masking',
+        'fields', jsonb_build_array('email', 'phone'),
+        'strategy', 'partial',
+        'conditions', jsonb_build_object(
+            'applies_to', 'customer_data',
+            'trigger', 'read'
+        )
+    );
+
+    /*
+      ✅ Deterministic hash (important for audit)
+    */
+    v_rule_hash := encode(
+        digest(v_rule_def::text, 'sha256'),
+        'hex'
+    );
+
+    /*
+      ✅ Idempotent insert (respects UNIQUE constraint)
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.compliance_rule
+        WHERE tenant_id = v_tenant
+          AND rule_code = v_rule_code
+          AND version = v_version
+    ) THEN
+
+        INSERT INTO evik_core.compliance_rule (
+            tenant_id,
+            rule_name,
+            rule_code,
+            scope_level,
+            region,
+            sector,
+            industry,
+            rule_definition,
+            priority,
+            is_active,
+            version,
+            rule_hash,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            'Default Data Masking Rule',
+            v_rule_code,
+            'TENANT',              -- ✅ valid constraint
+            NULL,
+            NULL,
+            NULL,
+            v_rule_def,
+            10,
+            true,
+            v_version,
+            v_rule_hash,
+            now()
+        );
+
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+SELECT evik_core.seed_compliance_rule_defaults();
+
+
+
+52) compliance_execution
+
+DROP FUNCTION IF EXISTS evik_core.seed_compliance_execution_defaults();
+
+CREATE OR REPLACE FUNCTION evik_core.seed_compliance_execution_defaults()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_tenant        uuid;
+    v_conv_id       uuid;
+    v_corr_id       text;
+    v_command       text := 'READ_CONVERSATION';
+BEGIN
+    -- 🔐 Enforce tenant context
+    v_tenant := evik_platform.get_tenant_context();
+
+    IF v_tenant IS NULL THEN
+        RAISE EXCEPTION 'Tenant context is required';
+    END IF;
+
+    -- 🔒 Role enforcement
+    IF current_user <> 'evik_service_writer' THEN
+        RAISE EXCEPTION 'Unauthorized role';
+    END IF;
+
+    /*
+      ✅ Use existing resource (conversation)
+    */
+    SELECT id
+    INTO v_conv_id
+    FROM evik_core.inbox_conversation
+    WHERE tenant_id = v_tenant
+    ORDER BY created_at
+    LIMIT 1;
+
+    IF v_conv_id IS NULL THEN
+        RAISE EXCEPTION 'No conversation found for tenant %', v_tenant;
+    END IF;
+
+    /*
+      ✅ Deterministic correlation
+    */
+    v_corr_id := 'compliance-corr-' || v_conv_id::text;
+
+    /*
+      ✅ Idempotent insert
+    */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_core.compliance_execution
+        WHERE tenant_id = v_tenant
+          AND correlation_id = v_corr_id
+          AND command_name = v_command
+    ) THEN
+
+        INSERT INTO evik_core.compliance_execution (
+            tenant_id,
+            correlation_id,
+            command_name,
+            resource_type,
+            resource_id,
+            policy_result,
+            compliance_result,
+            decision,
+            executed_rules,
+            created_at
+        )
+        VALUES (
+            v_tenant,
+            v_corr_id,
+            v_command,
+            'inbox_conversation',     -- resource type
+            v_conv_id,
+            'POLICY_APPLIED',         -- policy engine result
+            'COMPLIANT',              -- compliance result
+            'ALLOW',                  -- ✅ CHECK constraint
+            jsonb_build_array(
+                jsonb_build_object(
+                    'rule_code', 'DATA_MASKING',
+                    'version', 1,
+                    'result', 'applied',
+                    'action', 'mask_fields'
+                )
+            ),
+            now()
+        );
+
+    END IF;
+
+END;
+$$;
+
+SET ROLE evik_service_writer;
+
+SET evik.tenant_context = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+SELECT evik_platform.seed_auth_user_defaults();
+SELECT evik_core.seed_inbox_conversation_defaults();
+SELECT evik_core.seed_inbox_message_defaults();
+SELECT evik_core.seed_inbox_routing_log_defaults();
+SELECT evik_core.seed_inbox_assignment_log_defaults();
+SELECT evik_core.seed_inbox_events_defaults();
+SELECT evik_core.seed_compliance_rule_defaults();
+SELECT evik_core.seed_compliance_execution_defaults();
+
