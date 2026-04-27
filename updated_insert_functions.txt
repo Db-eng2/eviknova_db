@@ -1,0 +1,101 @@
+1) evik_core.insert_chat_message
+
+CREATE OR REPLACE FUNCTION evik_core.insert_chat_message(
+    p_user_id         uuid,
+    p_tenant_id       uuid,
+    p_correlation_id  uuid,
+    p_session_id      uuid,
+    p_sender_type     text,
+    p_direction       text,
+    p_content         text
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+DECLARE
+    v_id uuid;
+    v_ctx text;
+BEGIN
+    -- 🔐 READ TENANT CONTEXT (do NOT create it)
+    v_ctx := current_setting('evik.tenant_context', true);
+
+    -- 🚨 HARD FAIL: no context
+    IF v_ctx IS NULL THEN
+        RAISE EXCEPTION 'tenant_context must be set';
+    END IF;
+
+    -- 🚨 HARD FAIL: tenant mismatch
+    IF v_ctx <> p_tenant_id::text THEN
+        RAISE EXCEPTION 'Tenant mismatch: context % vs input %', v_ctx, p_tenant_id;
+    END IF;
+
+    -- 🔐 SAFE CONTEXT (non-security critical)
+    PERFORM set_config('app.user_id', p_user_id::text, true);
+    PERFORM set_config('app.correlation_id', p_correlation_id::text, true);
+
+    -- ✅ VALIDATION
+    IF p_session_id IS NULL THEN
+        RAISE EXCEPTION 'session_id is required';
+    END IF;
+
+    IF p_sender_type IS NULL THEN
+        RAISE EXCEPTION 'sender_type is required';
+    END IF;
+
+    IF p_direction IS NULL THEN
+        RAISE EXCEPTION 'direction is required';
+    END IF;
+
+    IF p_content IS NULL OR trim(p_content) = '' THEN
+        RAISE EXCEPTION 'content is required';
+    END IF;
+
+    -- 🔥 ENUM CHECKS
+    IF p_direction NOT IN ('inbound', 'outbound') THEN
+        RAISE EXCEPTION 'Invalid direction';
+    END IF;
+
+    IF p_sender_type NOT IN ('contact', 'agent', 'ai') THEN
+        RAISE EXCEPTION 'Invalid sender_type';
+    END IF;
+
+    -- 🚀 INSERT (RLS will still apply)
+    INSERT INTO evik_core.chat_message (
+        id,
+        tenant_id,
+        session_id,
+        sender_type,
+        direction,
+        content,
+        created_by
+    )
+    VALUES (
+        gen_random_uuid(),
+        p_tenant_id,
+        p_session_id,
+        p_sender_type,
+        p_direction,
+        p_content,
+        p_user_id
+    )
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$function$;
+
+for example - RESET evik.tenant_context;
+SET evik.tenant_context = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+SELECT evik_core.insert_chat_message(
+    'ee01b5fe-4411-4b1e-94f6-7b8ca9b9a338'::uuid, -- p_user_id
+    'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid, -- p_tenant_id
+    gen_random_uuid(),                            -- p_correlation_id
+    '11111111-1111-1111-1111-111111111111'::uuid, -- p_session_id ✅ (missing before)
+    'contact',                                    -- p_sender_type
+    'inbound',                                    -- p_direction
+    'RLS success test'                            -- p_content
+);
+
+2) 
