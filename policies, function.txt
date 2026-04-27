@@ -1,0 +1,2329 @@
+CREATE OR REPLACE FUNCTION evik_audit.prevent_modifications()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'Audit table is append-only. Updates/Deletes are not allowed.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER audit_no_update_delete
+BEFORE UPDATE OR DELETE ON evik_audit.audit_ledger
+FOR EACH ROW EXECUTE FUNCTION evik_audit.prevent_modifications();
+
+
+
+1) Select tenant policy for all the tenant scopped table.
+that should be done with all the tanat scopped table -- Enable RLS
+
+-----------------------------------------------------------------------------------------
+
+1) user_sessions.
+ 
+ALTER TABLE evik_platform.user_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_sessions FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY user_sessions_tenant_isolation
+ON evik_platform.user_sessions
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+3) Corrected Write Path.
+
+All writes go through SECURITY DEFINER functions that take tenant_id explicitly:
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_session(
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO evik_platform.user_sessions(tenant_id, user_id, metadata)
+    VALUES (p_tenant_id, p_user_id, p_metadata);
+
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (current_user, p_tenant_id, 'INSERT user_session', now());
+END;
+$$ LANGUAGE plpgsql;
+
+Correct Grant Script.
+
+-- Revoke any broad access
+REVOKE ALL ON FUNCTION evik_platform.secure_insert_user_session(uuid, uuid, jsonb) FROM PUBLIC;
+
+-- Allow only the service writer role to execute
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_session(uuid, uuid, jsonb)
+TO evik_service_writer;
+
+------------------------------------------------------------------------------------
+
+2) auth_user.
+
+
+
+ALTER TABLE evik_platform.auth_user ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.auth_user FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY auth_user_tenant_isolation
+ON evik_platform.auth_user
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+--------------------------------------------------------------------------------------------------------
+
+
+
+
+CREATE POLICY graph_node_tenant_isolation
+ON evik_platform.graph_node
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+------------------------------------------------------------------------------------------------
+3) command_audit.
+
+
+ALTER TABLE evik_platform.command_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.command_audit FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY command_audit_tenant_isolation
+ON evik_platform.command_audit
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------------------
+
+4) events.
+
+need to be checked.
+
+ALTER TABLE evik_platform.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.events FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY events_tenant_isolation
+ON evik_platform.events
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+ABAC :- 
+
+CREATE OR REPLACE FUNCTION evik_platform.get_actor_role()
+RETURNS text
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_role text;
+BEGIN
+    SELECT db_role
+    INTO v_role
+    FROM evik_platform.user_tenant_map
+    WHERE actor_id = evik_platform.get_actor_context()
+    LIMIT 1;
+
+    RETURN v_role;
+END;
+$$ LANGUAGE plpgsql;
+
+
+select 
+
+CREATE POLICY abac_event_access_select
+ON evik_platform.events
+FOR SELECT
+TO PUBLIC
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND (
+        sensitivity = 'public'
+        OR (sensitivity = 'internal' AND evik_platform.get_actor_context() IS NOT NULL)
+        OR (sensitivity = 'restricted' AND evik_platform.get_actor_role() = 'compliance_officer')
+    )
+);
+
+REVOKE EXECUTE ON FUNCTION evik_platform.get_actor_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION evik_platform.get_actor_role() TO evik_service_writer;
+
+
+ABAC Policy for INSERT 
+
+CREATE POLICY abac_event_access_insert
+ON evik_platform.events
+FOR INSERT
+TO PUBLIC
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND (
+        -- Only allow restricted events to be created by compliance_officer
+        (sensitivity = 'restricted' AND evik_platform.get_actor_role() = 'compliance_officer')
+        OR (sensitivity IN ('public','internal'))
+    )
+);
+
+
+UPDATE
+
+CREATE POLICY abac_event_access_update
+ON evik_platform.events
+FOR UPDATE
+TO PUBLIC
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND (
+        -- Restricted events can only be updated by compliance_officer
+        (sensitivity = 'restricted' AND evik_platform.get_actor_role() = 'compliance_officer')
+        OR (sensitivity IN ('public','internal'))
+    )
+);
+
+
+-----------------------------------------------------------------------------------
+
+5) graph_edge.
+
+
+ALTER TABLE evik_platform.graph_edge ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_edge FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY graph_edge_tenant_isolation
+ON evik_platform.graph_edge
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+----------------------------------------------------------------------------
+
+6) graph_node.
+
+
+ALTER TABLE evik_platform.graph_node ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_node FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY graph_node_tenant_isolation
+ON evik_platform.graph_node
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+--------------------------------------------------------------------
+
+7) masking_metadata.
+
+ALTER TABLE evik_platform.masking_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.masking_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY masking_metadata_tenant_isolation
+ON evik_platform.masking_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+Updated Policy for INSERT (Masking Metadata)
+
+CREATE POLICY tenant_masking_insert
+ON evik_platform.masking_metadata
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND (
+        -- Only tenant owners can insert masking metadata for their own tenant
+        evik_platform.get_actor_role() = 'tenant_owner'
+    )
+);
+
+
+Updated Policy for SELECT (Masking Metadata)
+
+CREATE POLICY tenant_masking_select
+ON evik_platform.masking_metadata
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND (
+        -- Tenant owners and template_engine can select masking metadata for their own tenant
+        evik_platform.get_actor_role() IN ('tenant_owner','template_engine')
+    )
+);
+
+-------------------------------------------------------------------
+
+8) resource_metadata
+
+
+ALTER TABLE evik_platform.resource_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.resource_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY resource_metadata_tenant_isolation
+ON evik_platform.resource_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+---------------------------------------------------------------
+
+9) resources.
+
+ALTER TABLE evik_platform.resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.resources FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY resources_tenant_isolation
+ON evik_platform.resources
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+CREATE POLICY abac_resource_access
+ON evik_platform.resources
+FOR SELECT
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND EXISTS (
+        SELECT 1
+        FROM evik_platform.user_metadata um
+        JOIN evik_platform.resource_metadata rm
+          ON rm.tenant_id = um.tenant_id
+        WHERE um.user_id = evik_platform.get_actor_context()
+          AND rm.resource_id = evik_platform.resources.id
+          AND um.country = rm.country
+          AND um.clearance IN ('high','medium')   -- clearance check
+          AND rm.sensitivity != 'restricted'      -- block restricted unless special role
+    )
+);
+
+--------------------------------------------------------------------------------------
+
+10) role_metadata.
+
+ALTER TABLE evik_platform.role_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.role_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY role_metadata_tenant_isolation
+ON evik_platform.role_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------------------------------
+
+11) sector_registry.
+
+
+ALTER TABLE evik_platform.sector_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.sector_registry FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY sector_registry_tenant_isolation
+ON evik_platform.sector_registry
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+----------------------------------------------------------------------
+
+12) snapshots.
+
+
+ALTER TABLE evik_platform.snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.snapshots FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY snapshots_tenant_isolation
+ON evik_platform.snapshots
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+----------------------------------------------------------------
+
+
+13) template_audit.
+
+
+ALTER TABLE evik_platform.template_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_audit FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_audit_tenant_isolation
+ON evik_platform.template_audit
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+---------------------------------------------------------------
+
+14) template_dependency_graph. 
+
+
+ALTER TABLE evik_platform.template_dependency_graph ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_dependency_graph FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_dependency_graph_tenant_isolation
+ON evik_platform.template_dependency_graph
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+--------------------------------------------------------------------------
+
+15) template_inheritance.
+
+
+
+ALTER TABLE evik_platform.template_inheritance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_inheritance FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_inheritance_tenant_isolation
+ON evik_platform.template_inheritance
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+------------------------------------------------------------------
+
+16) template_loader_state.
+
+
+ALTER TABLE evik_platform.template_loader_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_loader_state FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_loader_state_tenant_isolation
+ON evik_platform.template_loader_state
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+----------------------------------------------------------------------------
+
+17) template_metadata.
+
+
+
+ALTER TABLE evik_platform.template_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_metadata_tenant_isolation
+ON evik_platform.template_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------
+
+18) template_registry.
+
+
+ALTER TABLE evik_platform.template_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_registry FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_registry_tenant_isolation
+ON evik_platform.template_registry
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+------------------------------------------------------
+
+19) template_tenant.
+
+
+ALTER TABLE evik_platform.template_tenant ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_tenant FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_tenant_isolation
+ON evik_platform.template_tenant
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------
+
+
+20) template_version.
+
+
+ALTER TABLE evik_platform.template_version ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_version FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY template_version_tenant_isolation
+ON evik_platform.template_version
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+------------------------------------------------------------
+
+21) tenant_commands.
+
+
+ALTER TABLE evik_platform.tenant_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_commands FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenant_commands_tenant_isolation
+ON evik_platform.tenant_commands
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-----------------------------------------------------------
+
+22) tenant_metadata.
+
+
+ALTER TABLE evik_platform.tenant_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenant_metadata_tenant_isolation
+ON evik_platform.tenant_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+--------------------------------------------------------------------------------
+
+23) tenant_profile.
+
+
+ALTER TABLE evik_platform.tenant_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_profile FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenant_profile_tenant_isolation
+ON evik_platform.tenant_profile
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+--------------------------------------------------------
+
+24) tenant_registry.
+
+
+ALTER TABLE evik_platform.tenant_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_registry FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenant_registry_tenant_isolation
+ON evik_platform.tenant_registry
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+---------------------------------------------------------------
+
+25) tenants.
+
+
+ALTER TABLE evik_platform.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenants_tenant_isolation
+ON evik_platform.tenants
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------------
+
+26) tenants_history.
+
+
+ALTER TABLE evik_platform.tenants_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants_history FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY tenants_history_tenant_isolation
+ON evik_platform.tenants_history
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+----------------------------------------------------------------
+
+27) user_account.
+
+
+ALTER TABLE evik_platform.user_account ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_account FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY user_account_tenant_isolation
+ON evik_platform.user_account
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+------------------------------------------------------------------
+
+
+28) user_metadata
+
+
+ALTER TABLE evik_platform.user_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_metadata FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY user_metadata_tenant_isolation
+ON evik_platform.user_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------------------
+
+29) user_role
+
+ALTER TABLE evik_platform.user_role ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY user_role_tenant_isolation
+ON evik_platform.user_role
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_tenant_context()
+);
+
+-------------------------------------------------------------
+
+30) user_role_map
+
+
+ALTER TABLE evik_platform.user_role_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role_map FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+CREATE POLICY user_role_map_tenant_policy
+ON evik_platform.user_role_map
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+
+------------------------------------------------------------------------------------
+
+31) user_tenant_map
+
+
+ALTER TABLE evik_platform.user_tenant_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_tenant_map FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY user_tenant_map_tenant_policy
+ON evik_platform.user_tenant_map
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+-------------------------------------------------------------------------------------
+evik_core schema. 
+1) 
+ALTER TABLE evik_core.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.contacts FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY contacts_tenant_policy
+ON evik_core.contacts
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+2) 
+
+ALTER TABLE evik_core.interactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.interactions FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY interactions_tenant_policy
+ON evik_core.interactions
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+3) 
+
+ALTER TABLE evik_core.lead ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.lead FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY lead_tenant_policy
+ON evik_core.lead
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+4) 
+
+ALTER TABLE evik_core.service_type ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.service_type FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY service_type_tenant_policy
+ON evik_core.service_type
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+5) 
+
+ALTER TABLE evik_core.appointment ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.appointment FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY appointment_tenant_policy
+ON evik_core.appointment
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+6) 
+
+ALTER TABLE evik_core.voice_entry_point ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.voice_entry_point FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY voice_entry_point_tenant_policy
+ON evik_core.voice_entry_point
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+7) 
+
+ALTER TABLE evik_core.call_session ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.call_session FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY call_session_tenant_policy
+ON evik_core.call_session
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+8) 
+
+ALTER TABLE evik_core.chat_channel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_channel FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY chat_channel_tenant_policy
+ON evik_core.chat_channel
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+9) 
+
+ALTER TABLE evik_core.chat_session ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_session FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY chat_session_tenant_policy
+ON evik_core.chat_session
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+10) 
+
+ALTER TABLE evik_core.chat_message ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_message FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+
+CREATE POLICY chat_message_tenant_policy
+ON evik_core.chat_message
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+
+
+----------------------------------------------------------------------------------------
+tenant cotext binding. final - set and get functions.
+
+1) DROP FUNCTION IF EXISTS evik_platform.set_tenant_context(uuid);
+
+-- 2. Create secure binding function (still called set_tenant_context)
+-- This version validates actor ↔ tenant mapping before setting context
+
+CREATE OR REPLACE FUNCTION evik_platform.set_tenant_context(p_actor_id uuid, p_tenant_id uuid)
+RETURNS void
+AS $$
+BEGIN
+    -- Validate actor ↔ tenant relationship
+    IF NOT EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map
+        WHERE user_id = p_actor_id
+          AND tenant_id = p_tenant_id
+    ) THEN
+        RAISE EXCEPTION 'Actor % is not authorized for tenant %', p_actor_id, p_tenant_id;
+    END IF;
+
+    -- Set tenant context only after validation (transaction-scoped)
+    EXECUTE format('SET LOCAL evik.tenant_context = %L', p_tenant_id::text);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE EXECUTE ON FUNCTION evik_platform.set_tenant_context(uuid, uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION evik_platform.set_tenant_context(uuid, uuid) TO evik_service_writer;
+
+
+-- 3. Refined getter with enforcement
+
+CREATE OR REPLACE FUNCTION evik_platform.get_tenant_context()
+RETURNS uuid
+AS $$
+DECLARE
+    tenant_id uuid;
+BEGIN
+    -- Try to read tenant context
+    BEGIN
+        tenant_id := current_setting('evik.tenant_context', true)::uuid;
+    EXCEPTION WHEN others THEN
+        tenant_id := NULL;
+    END;
+
+    -- Enforce: tenant context must be set
+    IF tenant_id IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    RETURN tenant_id;
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE EXECUTE ON FUNCTION evik_platform.get_tenant_context() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION evik_platform.get_tenant_context() TO evik_service_writer;
+
+
+---------------------------------------------------------------------------------------------------
+secure insert function :- 
+
+1) evik_platform.user_sessions
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_session(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_sessions(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_session', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM evik_service_writer;
+REVOKE INSERT ON evik_audit.audit_ledger FROM PUBLIC;
+REVOKE INSERT ON evik_audit.audit_ledger FROM evik_service_writer;
+
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_session(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+
+REVOKE EXECUTE ON FUNCTION evik_platform.get_tenant_context() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION evik_platform.get_actor_context() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION evik_platform.get_tenant_context() TO evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.get_actor_context() TO evik_service_writer;
+
+ALTER FUNCTION evik_platform.secure_insert_user_session(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+
+SELECT grantee, privilege_type
+FROM information_schema.role_routine_grants
+WHERE routine_schema = 'evik_platform'
+AND routine_name IN ('get_tenant_context','get_actor_context');
+
+-------------------------------------------------------------------------------
+
+2) evik_platform.auth_user
+
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_auth_user(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.auth_user(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT INTO evik_platform.auth_user', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.auth_user FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.auth_user FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_auth_user(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_auth_user(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+
+-----------------------------------------------------------------------------------------
+
+3) evik_platform.command_audit
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_command_audit(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.command_audit(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT command_audit', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.command_audit FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.command_audit FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_command_audit(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_command_audit(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------
+
+4) evik_platform.events
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_events(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.events(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT events', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.events FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.events FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_events(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_events(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-----------------------------------------------------------------------------------------------
+5) evik_platform.graph_edge
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_graph_edge(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.graph_edge(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT graph_edge', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.graph_edge FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.graph_edge FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_graph_edge(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_graph_edge(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+
+-------------------------------------------------------------------------------------------------
+
+6) graph_node
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_graph_node(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.graph_node(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT graph_node', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.graph_node FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.graph_node FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_graph_node(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_graph_node(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+----------------------------------------------------------------------------------------------
+7) masking_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_masking_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.masking_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT masking_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.masking_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.masking_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_masking_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_masking_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------------------------------
+
+8) resource_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_resource_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.resource_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT resource_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.resource_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.resource_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_resource_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_resource_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+----------------------------------------------------------------------------------------------------------------
+9) resources
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_resources(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.resources(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT resources', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.resources FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.resources FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_resources(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_resources(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+----------------------------------------------------------------------------------------------------------
+10) role_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_role_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.role_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT role_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.role_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.role_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_role_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_role_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+----------------------------------------------------------------------------------------------
+11) sector_registry
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_sector_registry(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.sector_registry(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT sector_registry', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.sector_registry FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.sector_registry FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_sector_registry(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_sector_registry(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+--------------------------------------------------------------------------------------------------
+12) snapshots
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_snapshots(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.snapshots(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT snapshots', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.snapshots FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.snapshots FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_snapshots(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_snapshots(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------
+
+13) template_audit
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_audit(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_audit(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_audit', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_audit FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_audit FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_audit(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_audit(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------
+14) template_dependency_graph
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_dependency_graph(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_dependency_graph(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_dependency_graph', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_dependency_graph FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_dependency_graph FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_dependency_graph(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_dependency_graph(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------
+15) template_inheritance
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_inheritance(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_inheritance(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_inheritance', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_inheritance FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_inheritance FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_inheritance(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_inheritance(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------
+pending:- 
+
+16) template_loader_state.
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_loader_state(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_loader_state(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_loader_state', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_loader_state FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_loader_state FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_loader_state(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_loader_state(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------------------------------
+17) template_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+--------------------------------------------------------------------------------------------------------------------
+18) template_registry
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_registry(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_registry(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_registry', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_registry FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_registry FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_registry(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_registry(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------
+19) template_tenant
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_tenant(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_tenant(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_tenant', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_tenant FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_tenant FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_tenant(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_tenant(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+------------------------------------------------------------------------------------------------------------------
+
+20) template_version
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_template_version(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.template_version(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT template_version', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_version FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_version FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_template_version(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_template_version(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+----------------------------------------------------------------------------------------------------
+21) tenant_commands
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenant_commands(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenant_commands(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenant_commands', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_commands FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_commands FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenant_commands(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenant_commands(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------------
+22) tenant_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenant_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenant_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenant_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenant_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenant_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------------
+23) tenant_profile
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenant_profile(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenant_profile(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenant_profile', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_profile FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_profile FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenant_profile(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenant_profile(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+------------------------------------------------------------------------------------------------
+24) tenant_registry
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenant_registry(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenant_registry(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenant_registry', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_registry FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenant_registry FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenant_registry(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenant_registry(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+------------------------------------------------------------------------------------------------
+25) tenants
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenants(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenants(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenants', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenants FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenants FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenants(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenants(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+------------------------------------------------------------------------------------------------
+
+26) tenants_history
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_tenants_history(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.tenants_history(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT tenants_history', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenants_history FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.tenants_history FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_tenants_history(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_tenants_history(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+------------------------------------------------------------------------------------------------
+27) user_account
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_account(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_account(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_account', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_account FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_account FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_account(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_user_account(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------------
+28) user_metadata
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_metadata(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_metadata(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_metadata', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_metadata FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_metadata FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_metadata(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_user_metadata(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------------------
+29) user_role
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_role(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_role(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_role', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_role FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_role FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_role(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_user_role(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+---------------------------------------------------------------------------------------------------------
+
+30) user_role_map
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_role_map(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_role_map(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_role_map', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_role_map FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_role_map FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_role_map(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_user_role_map(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------
+31) user_tenant_map
+
+CREATE OR REPLACE FUNCTION evik_platform.secure_insert_user_tenant_map(
+    p_actor_id uuid,
+    p_tenant_id uuid,
+    p_user_id uuid,
+    p_metadata jsonb
+)
+RETURNS void
+SECURITY DEFINER
+SET row_security = on
+AS $$
+BEGIN
+    -- Internal enforcement
+    IF evik_platform.get_tenant_context() IS NULL THEN
+        RAISE EXCEPTION 'Tenant context not set';
+    END IF;
+
+    IF evik_platform.get_actor_context() IS NULL THEN
+        RAISE EXCEPTION 'Actor context not set';
+    END IF;
+
+    -- Insert logic
+    INSERT INTO evik_platform.user_tenant_map(tenant_id, user_id, metadata)
+    VALUES (evik_platform.get_tenant_context(), p_user_id, p_metadata);
+
+    -- Audit log
+    INSERT INTO evik_audit.audit_ledger(actor_id, tenant_id, action, created_at)
+    VALUES (evik_platform.get_actor_context(), evik_platform.get_tenant_context(), 'INSERT user_tenant_map', now());
+END;
+$$ LANGUAGE plpgsql;
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_tenant_map FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_tenant_map FROM evik_service_writer;
+GRANT EXECUTE ON FUNCTION evik_platform.secure_insert_user_tenant_map(uuid, uuid, uuid, jsonb) TO evik_service_writer;
+ALTER FUNCTION evik_platform.secure_insert_user_tenant_map(uuid, uuid, uuid, jsonb) OWNER TO evik_service_writer;
+
+-------------------------------------------------------------------------------

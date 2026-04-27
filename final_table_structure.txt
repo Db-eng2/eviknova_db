@@ -1,0 +1,3264 @@
+database name - eviknova;
+schema name - 
+1) evik_audit    
+2) evik_core     
+3) evik_platform 
+4) public        
+
+application/db user/roles - tenant_owner, template_engine, tenant_user, superadmin, compliance_officer;
+
+INSERT INTO evik_platform.user_tenant_map (
+    id, db_role, tenant_id, created_at
+) VALUES
+    (gen_random_uuid(), 'superadmin',         '11111111-2222-3333-4444-555555555555', now()),
+    (gen_random_uuid(), 'tenant_user',        'bbbbbbbb-cccc-dddd-eeee-ffffffffffff', now()),
+    (gen_random_uuid(), 'template_engine',    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', now()),
+    (gen_random_uuid(), 'compliance_officer', 'cccccccc-dddd-eeee-ffff-111111111111', now()),
+    (gen_random_uuid(), 'tenant_owner',       'dddddddd-eeee-ffff-aaaa-222222222222', now());
+
+ALTER ROLE tenant_owner NOBYPASSRLS;
+ALTER ROLE template_engine NOBYPASSRLS;
+ALTER ROLE tenant_user NOBYPASSRLS;
+ALTER ROLE superadmin NOBYPASSRLS;
+ALTER ROLE compliance_officer NOBYPASSRLS;
+
+
+ALTER ROLE tenant_owner WITH PASSWORD 'Db#evik@qwdt$i9okl';
+ALTER ROLE template_engine WITH PASSWORD 'Db#evik@2019$';
+ALTER ROLE tenant_user WITH PASSWORD 'Db#evik@2019$tyud';
+ALTER ROLE superadmin WITH PASSWORD 'Db#evik@2020@rest';
+ALTER ROLE compliance_officer WITH PASSWORD 'Db#evik@2026@cder';
+
+
+GRANT SELECT ON evik_platform.user_tenant_map TO tenant_user, tenant_owner, compliance_officer, template_engine;
+
+GRANT USAGE ON SCHEMA evik_platform TO tenant_owner, template_engine, tenant_user, superadmin;
+
+--------------------------------------------------------------------------------------------------------------------
+old :- 
+sample :- 
+
+GRANT SELECT ON evik_platform.user_account TO tenant_owner, template_engine, tenant_user, superadmin;
+
+-- Create a new tenant-aware policy
+
+CREATE POLICY user_account_tenant_policy
+ON evik_platform.user_account
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+---------------------------------------------------------------------
+New :- 
+-- Function to get tenant context
+
+CREATE OR REPLACE FUNCTION evik_platform.get_bound_tenant_id()
+RETURNS uuid
+AS $$
+    SELECT tenant_id
+    FROM evik_platform.tenant_context
+    WHERE session_pid = pg_backend_pid();
+$$ LANGUAGE sql;
+
+that should be done with all the tanat scopped table -- Enable RLS
+
+ALTER TABLE evik_platform.user_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_sessions FORCE ROW LEVEL SECURITY;
+
+-- Correct tenant isolation policy
+CREATE POLICY user_sessions_tenant_policy
+ON evik_platform.user_sessions
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+
+-----------------------------------------------------------------------------------------------------------
+evik_platform 
+
+
+CREATE TABLE evik_platform.user_account (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id     uuid NOT NULL,
+    email         text NOT NULL UNIQUE,
+    name          text NOT NULL,
+    phone         varchar(20),
+    status        text CHECK (status = ANY (ARRAY['active', 'inactive', 'suspended'])),
+    last_login_at timestamptz,
+    mfa_enabled   boolean NOT NULL DEFAULT false,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    dsar_locked   boolean DEFAULT true
+);
+
+-- Indexes
+CREATE UNIQUE INDEX user_account_email_key
+    ON evik_platform.user_account (email);
+
+-- Foreign key references
+ALTER TABLE evik_platform.resource_metadata
+    ADD CONSTRAINT resource_metadata_created_by_fkey
+    FOREIGN KEY (created_by)
+    REFERENCES evik_platform.user_account (id);
+
+ALTER TABLE evik_platform.resources
+    ADD CONSTRAINT resources_created_by_fkey
+    FOREIGN KEY (created_by)
+    REFERENCES evik_platform.user_account (id);
+
+ALTER TABLE evik_platform.user_metadata
+    ADD CONSTRAINT user_metadata_user_id_fkey
+    FOREIGN KEY (user_id)
+    REFERENCES evik_platform.user_account (id);
+
+19-03-2026
+
+CREATE POLICY user_sessions_tenant_policy
+ON evik_platform.user_account
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+
+
+---------------------------------------------------------------------------
+
+CREATE TABLE evik_platform.user_tenant_map (
+    id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    db_role   text NOT NULL,
+    tenant_id uuid NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+
+    -- Enforce uniqueness: each role maps to exactly one tenant
+    CONSTRAINT unique_role UNIQUE (db_role),
+
+    -- Optional: enforce uniqueness the other way if each tenant must have only one role
+    CONSTRAINT unique_tenant UNIQUE (tenant_id)
+);
+
+ALTER TABLE evik_platform.user_tenant_map
+ADD COLUMN user_id uuid;
+
+
+1. Restrict Access
+Revoke all default/public access:
+
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM PUBLIC;
+REVOKE
+eviknova=>
+
+-- Explicitly revoke from tenant roles
+
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM tenant_user;
+REVOKE
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM tenant_owner;
+REVOKE
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM compliance_officer;
+REVOKE
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM superadmin;
+REVOKE
+eviknova=> REVOKE ALL ON evik_platform.user_tenant_map FROM template_engine;
+REVOKE
+eviknova=>
+
+
+2. Grant Minimal Access to Service Roles
+Only service roles that need to resolve tenant context should have read access:
+
+GRANT SELECT ON evik_platform.user_tenant_map TO evik_service_reader;
+
+
+3. Deny Tenant Roles
+Tenant roles must not query this table directly:
+
+REVOKE SELECT ON evik_platform.user_tenant_map FROM tenant_user;
+REVOKE SELECT ON evik_platform.user_tenant_map FROM tenant_owner;
+REVOKE SELECT ON evik_platform.user_tenant_map FROM compliance_officer;
+REVOKE SELECT ON evik_platform.user_tenant_map FROM superadmin;
+REVOKE SELECT ON evik_platform.user_tenant_map FROM template_engine;
+
+
+4. Controlled Access via Functions
+Expose tenant context only through controlled functions:
+
+CREATE OR REPLACE FUNCTION evik_platform.get_user_tenant(p_user_id uuid)
+RETURNS uuid
+SECURITY DEFINER
+AS $$
+    SELECT tenant_id
+    FROM evik_platform.user_tenant_map
+    WHERE user_id = p_user_id;
+$$ LANGUAGE sql;
+
+
+Tenant roles can be granted EXECUTE on this function, but not direct access to the table:
+
+GRANT EXECUTE ON FUNCTION evik_platform.get_user_tenant(uuid) TO tenant_user;
+
+---------------------------------------------------------------------------------------------
+1) auth_user
+
+CREATE TABLE evik_platform.auth_user (
+    user_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id      UUID NOT NULL,
+    username       TEXT NOT NULL UNIQUE,
+    email          TEXT NOT NULL UNIQUE,
+    password_hash  TEXT NOT NULL,                  -- securely hashed password
+    status         TEXT CHECK (status IN ('active','inactive','locked')) DEFAULT 'active',
+    created_at     TIMESTAMPTZ DEFAULT now(),
+    last_login_at  TIMESTAMPTZ,
+    CONSTRAINT auth_user_fk FOREIGN KEY (tenant_id)
+        REFERENCES evik_platform.tenant_metadata (tenant_id)
+        ON DELETE CASCADE
+);
+
+ALTER TABLE evik_platform.auth_user ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.auth_user FORCE ROW LEVEL SECURITY;
+
+GRANT SELECT ON evik_platform.auth_user TO tenant_owner, template_engine, tenant_user, superadmin;
+
+
+
+19-03-2026
+
+CREATE POLICY auth_user_tenant_policy
+ON evik_platform.auth_user
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+
+------------------------------------------------------------------------------------------------------------------------------------
+2) command_audit
+
+CREATE TABLE evik_platform.command_audit (
+    audit_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- unique identifier
+    tenant_id    UUID NOT NULL,                             -- tenant context
+    user_id      UUID NOT NULL,                             -- user executing command
+    command_text TEXT NOT NULL,                             -- raw SQL or API command
+    command_type TEXT NOT NULL,                             -- e.g., SELECT, INSERT, UPDATE, DELETE
+    version      BIGINT NOT NULL,                           -- sequential version number
+    executed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),        -- timestamp of execution
+    success      BOOLEAN NOT NULL                           -- true if succeeded, false if failed
+);
+
+GRANT SELECT ON evik_platform.command_audit TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.command_audit TO tenant_owner;
+
+CREATE OR REPLACE FUNCTION evik_platform.command_audit_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_platform.command_audit (
+        tenant_id,
+        user_id,
+        command_text,
+        command_type,
+        version,
+        success
+    )
+    VALUES (
+        -- tenant context from user_tenant_map
+        (SELECT tenant_id FROM evik_platform.user_tenant_map WHERE db_role = current_user),
+        -- user context (assuming your user_account table has id for current_user)
+        (SELECT id FROM evik_platform.user_account WHERE db_role = current_user),
+        current_query(),   -- full SQL text executed
+        TG_OP,             -- command type: INSERT, UPDATE, DELETE
+        1,                 -- versioning, you can increment or set default
+        TRUE               -- mark success, can be set dynamically
+    );
+    RETURN NEW;
+END;
+$$;
+
+
+
+---------------------------------------------------------------------------------------------------------------------
+3) command_record
+
+CREATE TABLE evik_platform.command_record (
+    command_id   UUID PRIMARY KEY,  -- Unique identifier for the command
+    status       VARCHAR(20) NOT NULL,  -- Execution status: PENDING, COMPLETED, FAILED
+    payload_hash VARCHAR(64) NOT NULL,  -- SHA-256 hash of the command payload
+    result       TEXT,  -- Serialized JSON response from command execution
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,  -- When record was created
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,  -- When record was last updated
+    payload      JSONB,  -- Serialized JSON payload for audit/replay
+    CONSTRAINT chk_command_record_status
+        CHECK (status IN ('PENDING','COMPLETED','FAILED'))
+);
+
+-- Indexes
+CREATE INDEX idx_command_record_created_at
+    ON evik_platform.command_record (created_at);
+
+CREATE INDEX idx_command_record_status
+    ON evik_platform.command_record (status);
+
+CREATE INDEX idx_command_record_status_created
+    ON evik_platform.command_record (status, created_at);
+	
+REVOKE ALL ON evik_platform.command_record FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.command_record TO superadmin;
+
+------------------------------------------------------------------------------------------------------------------------
+
+4) country
+
+
+CREATE TABLE evik_platform.country (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    iso_code       VARCHAR(5) NOT NULL,
+    name           TEXT NOT NULL,
+    region_cluster TEXT NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT country_iso_code_key UNIQUE (iso_code)
+);
+
+
+GRANT SELECT ON evik_platform.country TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.country FROM tenant_owner, template_engine, compliance_officer;
+
+-----------------------------------------------------------------------------------------------------------------------
+
+5) event_metadata
+
+CREATE TABLE evik_platform.event_metadata (
+    event_id       UUID PRIMARY KEY,
+    ip_address     INET,
+    user_agent     TEXT,
+    correlation_id UUID,
+    causation_id   UUID,
+    CONSTRAINT event_metadata_event_id_fkey
+        FOREIGN KEY (event_id)
+        REFERENCES evik_platform.events(id)
+        ON DELETE CASCADE
+);
+
+
+REVOKE ALL ON evik_platform.event_metadata FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.event_metadata TO superadmin;
+
+
+
+--------------------------------------------------------------------------------
+
+6) Events
+
+ CREATE TABLE evik_platform.events (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL,                 -- scope to tenant
+    aggregate_id  UUID NOT NULL,                 -- entity being changed (e.g., user_id, order_id)
+    aggregate_type TEXT NOT NULL,                -- type of entity (e.g., 'user_account', 'order')
+    event_type    TEXT NOT NULL,                 -- e.g., 'UserCreated', 'TenantSuspended'
+    event_data    JSONB NOT NULL,                -- payload describing the change
+    version       INT NOT NULL,                  -- version of the aggregate after this event
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by    TEXT                           -- who triggered the event
+);
+
+ALTER TABLE evik_platform.events
+ADD COLUMN sensitivity text NOT NULL
+DEFAULT 'public'
+CHECK (sensitivity IN ('public','internal','restricted'));
+
+
+GRANT SELECT ON evik_platform.events TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.events TO tenant_owner;
+
+
+
+19-03-2026
+
+CREATE POLICY events_tenant_policy
+ON evik_platform.events
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the bound tenant context
+    tenant_id = evik_platform.get_bound_tenant_id()
+);
+
+ALTER TABLE evik_platform.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.events FORCE ROW LEVEL SECURITY;
+
+pending 
+
+2. Define ABAC Policy for SELECT
+
+CREATE POLICY abac_event_access_select
+ON evik_platform.events
+FOR SELECT
+TO PUBLIC
+USING (
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+    AND (
+        -- Attribute-based rules
+        sensitivity = 'public'
+        OR (sensitivity = 'internal' AND current_user IN (SELECT db_role FROM evik_platform.user_tenant_map))
+        OR (sensitivity = 'restricted' AND current_user = 'compliance_officer')
+    )
+);
+
+3. Define ABAC Policy for INSERT
+
+CREATE POLICY abac_event_access_insert
+ON evik_platform.events
+FOR INSERT
+TO PUBLIC
+WITH CHECK (
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+    AND (
+        -- Only allow restricted events to be created by compliance_officer
+        (sensitivity = 'restricted' AND current_user = 'compliance_officer')
+        OR (sensitivity IN ('public','internal'))
+    )
+);
+
+Pending :--
+
+4) Define ABAC Policy for UPDATE
+
+CREATE POLICY abac_event_access_update
+ON evik_platform.events
+FOR UPDATE
+TO PUBLIC
+USING (
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+    AND (
+        -- Restricted events can only be updated by compliance_officer
+        (sensitivity = 'restricted' AND current_user = 'compliance_officer')
+        OR (sensitivity IN ('public','internal'))
+    )
+);
+
+-------------------------------------------------------------------------------------------
+
+7) global_country_registry
+
+CREATE TABLE evik_platform.global_country_registry (
+    registry_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by  UUID NOT NULL,
+    CONSTRAINT global_country_registry_code_key UNIQUE (code)
+);
+
+
+GRANT SELECT ON evik_platform.global_country_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.global_country_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+
+
+5. Append‑Only Enforcement
+
+Prevent updates and deletes to ensure auditability:
+
+CREATE OR REPLACE FUNCTION prevent_update_delete()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Updates and deletes are not allowed on global registries';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to each registry table
+CREATE TRIGGER country_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_country_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+
+
+CREATE TRIGGER sector_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_sector_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+
+
+----------------------------------------------------------------------------------------------
+
+8) global_industry_registry
+
+CREATE TABLE evik_platform.global_industry_registry (
+    registry_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	tenant_id UUID,
+    code        TEXT UNIQUE NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL
+);
+
+GRANT SELECT ON evik_platform.global_industry_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.global_industry_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+CREATE TRIGGER industry_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_industry_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+----------------------------------------------------------------------------------------
+
+9) global_language_registry
+
+CREATE TABLE evik_platform.global_language_registry (
+    registry_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL,
+    CONSTRAINT global_language_registry_code_key UNIQUE (code)
+);
+
+GRANT SELECT ON evik_platform.global_language_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.global_language_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+CREATE TRIGGER language_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_language_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+----------------------------------------------------------------------------------------
+
+10) global_sector_registry
+
+CREATE TABLE evik_platform.global_sector_registry (
+    registry_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL,
+    CONSTRAINT global_sector_registry_code_key UNIQUE (code)
+);
+
+ALTER TABLE evik_platform.sector_registry
+ADD COLUMN tenant_id uuid NOT NULL;
+
+GRANT SELECT ON evik_platform.global_sector_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.global_sector_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+------------------------------------------------------------------------------
+
+11) CREATE TABLE evik_platform.graph_edge (
+    edge_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    source_id   UUID NOT NULL REFERENCES evik_platform.graph_node(node_id) ON DELETE CASCADE,
+    target_id   UUID NOT NULL REFERENCES evik_platform.graph_node(node_id) ON DELETE CASCADE,
+    relation    TEXT NOT NULL, -- e.g., "depends_on", "inherits_from"
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version     BIGINT NOT NULL
+);
+
+
+CREATE INDEX idx_graph_edge_tenant_source
+ON evik_platform.graph_edge (tenant_id, source_id);
+
+CREATE INDEX idx_graph_edge_tenant_target
+ON evik_platform.graph_edge (tenant_id, target_id);
+
+CREATE INDEX idx_graph_edge_tenant_source_target
+ON evik_platform.graph_edge (tenant_id, source_id, target_id);
+
+ALTER TABLE evik_platform.graph_edge ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_edge FORCE ROW LEVEL SECURITY;
+
+GRANT SELECT ON evik_platform.graph_edge TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.graph_edge TO tenant_owner;
+
+CREATE POLICY graph_edge_tenant_policy
+ON evik_platform.graph_edge
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+---------------------------------------------------------------------------------
+12) 
+
+CREATE TABLE evik_platform.graph_node (
+    node_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    name        TEXT NOT NULL,
+    type        TEXT NOT NULL, -- e.g., "class", "module", "dataset"
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version     BIGINT NOT NULL
+);
+
+CREATE INDEX idx_graph_node_tenant_node
+ON evik_platform.graph_node (tenant_id, node_id);
+
+CREATE INDEX idx_graph_node_tenant_type
+ON evik_platform.graph_node (tenant_id, type);
+
+ALTER TABLE evik_platform.graph_node ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_node FORCE ROW LEVEL SECURITY;
+
+GRANT SELECT ON evik_platform.graph_node TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.graph_node TO tenant_owner;
+
+CREATE POLICY graph_node_tenant_policy
+ON evik_platform.graph_node
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+
+
+CREATE OR REPLACE FUNCTION log_graph_node_changes()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_platform.command_audit (
+        tenant_id,
+        user_id,
+        command_text,
+        command_type,
+        version,
+        executed_at,
+        success
+    )
+    VALUES (
+        NEW.tenant_id,
+        current_setting('evik.user_id')::uuid,
+        current_query(),
+        TG_OP,
+        NEW.version,
+        now(),
+        TRUE
+    );
+
+    RETURN NEW;
+END;
+$$;
+
+
+CREATE TRIGGER audit_graph_node
+AFTER INSERT OR UPDATE OR DELETE
+ON evik_platform.graph_node
+FOR EACH ROW
+EXECUTE FUNCTION log_graph_node_changes();
+
+CREATE OR REPLACE FUNCTION log_node_edge_changes()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_platform.command_audit (
+        tenant_id,
+        user_id,
+        command_text,
+        command_type,
+        version,
+        executed_at,
+        success
+    )
+    VALUES (
+        NEW.tenant_id,
+        current_setting('evik.user_id')::uuid,
+        current_query(),
+        TG_OP,
+        NEW.version,
+        now(),
+        TRUE
+    );
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER audit_node_edge
+AFTER INSERT OR UPDATE OR DELETE
+ON evik_platform.graph_edge
+FOR EACH ROW
+EXECUTE FUNCTION log_node_edge_changes();
+
+
+---------------------------------------------------------------------------------------------------------
+13) Industry
+ 
+CREATE TABLE evik_platform.industry (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code         TEXT NOT NULL UNIQUE,   -- e.g., 'DENTLE_CLINIC'
+    name         TEXT NOT NULL,
+    sector       TEXT NOT NULL CHECK (
+                    sector IN (
+                        'Agriculture',
+                        'Healthcare',
+                        'Education',
+                        'Finance',
+                        'Manufacturing',
+                        'Retail',
+                        'Technology',
+                        'Energy',
+                        'Transportation',
+                        'Hospitality',
+                        'Construction',
+                        'Government',
+                        'Media',
+                        'Telecommunications',
+                        'Other'
+                    )
+                 ),
+    description  TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+GRANT SELECT ON evik_platform.industry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.industry FROM tenant_owner, template_engine, compliance_officer;
+
+
+
+---------------------------------------------------------------------------------------------
+
+14) CREATE TABLE evik_platform.command_audit (
+    audit_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- unique identifier
+    tenant_id    UUID NOT NULL,                             -- tenant context
+    user_id      UUID NOT NULL,                             -- user executing command
+    command_text TEXT NOT NULL,                             -- raw SQL or API command
+    command_type TEXT NOT NULL,                             -- e.g., SELECT, INSERT, UPDATE, DELETE
+    version      BIGINT NOT NULL,                           -- sequential version number
+    executed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),        -- timestamp of execution
+    success      BOOLEAN NOT NULL                           -- true if succeeded, false if failed
+);
+
+
+GRANT SELECT ON evik_platform.command_audit TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.command_audit TO tenant_owner;
+
+
+ALTER TABLE evik_platform.command_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.command_audit FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY command_audit_tenant_policy
+ON evik_platform.command_audit
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+--------------------------------------------------------------------------
+
+15) industry_lifecycle :- Tracks the current lifecycle stage of an industry within a tenant’s context.
+                          Columns: Typically include industry_id, stage (draft, active, deprecated), tenant_id, timestamps.
+                          Allows governance officers to manage industry states over time.
+
+CREATE TABLE evik_platform.industry_lifecycle (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    industry_id   uuid NOT NULL REFERENCES evik_platform.industry(id) ON DELETE CASCADE,
+    sector_id     uuid NOT NULL REFERENCES evik_platform.sector_registry(id) ON DELETE CASCADE,
+    stage         text NOT NULL CHECK (stage = ANY (ARRAY[
+        'Emerging', 'Growth', 'Mature', 'Decline'
+    ])),
+    effective_from timestamptz NOT NULL DEFAULT now(),
+    effective_to   timestamptz,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE evik_platform.industry_lifecycle
+ADD COLUMN version bigint NOT NULL DEFAULT 1,
+ADD COLUMN lifecycle_status text NOT NULL DEFAULT 'Active'
+CHECK (lifecycle_status = ANY (ARRAY['Active','Archived','Superseded']));
+
+
+GRANT SELECT ON evik_platform.industry_lifecycle TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.industry_lifecycle TO tenant_owner;
+
+
+ALTER TABLE evik_platform.industry_lifecycle ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.industry_lifecycle FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY superadmin_read_industry_lifecycle
+ON evik_platform.industry_lifecycle
+FOR SELECT
+TO superadmin
+USING (true);
+
+3. Trigger for Versioning
+
+CREATE OR REPLACE FUNCTION evik_platform.versioning_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- On update, archive old row into history
+    IF TG_OP = 'UPDATE' THEN
+        INSERT INTO evik_platform.industry_lifecycle_history (
+            lifecycle_id, industry_id, sector_id, stage,
+            version, lifecycle_status, effective_from, effective_to
+        )
+        VALUES (
+            OLD.id, OLD.industry_id, OLD.sector_id, OLD.stage,
+            OLD.version, OLD.lifecycle_status, OLD.effective_from, OLD.effective_to
+        );
+
+        -- Increment version in main table
+        NEW.version := OLD.version + 1;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER industry_lifecycle_versioning
+BEFORE UPDATE ON evik_platform.industry_lifecycle
+FOR EACH ROW
+EXECUTE FUNCTION evik_platform.versioning_trigger();
+
+CREATE TRIGGER audit_industry_lifecycle
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.industry_lifecycle
+FOR EACH ROW
+EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+--------------------------------------------------------------------------------------------
+
+
+5. Append‑Only Enforcement
+
+Prevent updates and deletes to ensure auditability:
+
+CREATE OR REPLACE FUNCTION prevent_update_delete()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Updates and deletes are not allowed on global registries';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply to each registry table
+CREATE TRIGGER country_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_country_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+CREATE TRIGGER language_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_language_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+CREATE TRIGGER sector_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_sector_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+CREATE TRIGGER industry_registry_append_only
+BEFORE UPDATE OR DELETE ON evik_platform.global_industry_registry
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete();
+
+-----------------------------------------------------------------------------
+16) industry_lifecycle_history :- Historical record of all lifecycle transitions for industries.
+                                  Provides an audit trail of changes (who changed, when, and why).
+
+CREATE TABLE evik_platform.industry_lifecycle_history (
+    history_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    lifecycle_id uuid NOT NULL,
+    industry_id  uuid NOT NULL,
+    sector_id    uuid NOT NULL,
+    stage        text NOT NULL,
+    version      bigint NOT NULL,
+    lifecycle_status text NOT NULL,
+    effective_from timestamptz NOT NULL,
+    effective_to   timestamptz,
+    archived_at    timestamptz DEFAULT now()
+);
+
+
+GRANT SELECT ON evik_platform.industry_lifecycle_history TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.industry_lifecycle_history FROM tenant_owner, template_engine, compliance_officer;
+
+
+3. Trigger for Versioning
+
+CREATE OR REPLACE FUNCTION evik_platform.versioning_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- On update, archive old row into history
+    IF TG_OP = 'UPDATE' THEN
+        INSERT INTO evik_platform.industry_lifecycle_history (
+            lifecycle_id, industry_id, sector_id, stage,
+            version, lifecycle_status, effective_from, effective_to
+        )
+        VALUES (
+            OLD.id, OLD.industry_id, OLD.sector_id, OLD.stage,
+            OLD.version, OLD.lifecycle_status, OLD.effective_from, OLD.effective_to
+        );
+
+        -- Increment version in main table
+        NEW.version := OLD.version + 1;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER industry_lifecycle_versioning
+BEFORE UPDATE ON evik_platform.industry_lifecycle
+FOR EACH ROW
+EXECUTE FUNCTION evik_platform.versioning_trigger();
+
+----------------------------------------------------------------------------------------------
+
+17) CREATE TABLE evik_platform.industry_pack (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    industry_id            UUID NOT NULL,
+    default_templates_key  TEXT NOT NULL,
+    default_workflow_set   TEXT,
+    default_channels       JSONB NOT NULL,
+    default_document_types JSONB NOT NULL,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT industry_defaults_industry_id_fkey
+        FOREIGN KEY (industry_id)
+        REFERENCES evik_platform.industry(id)
+        ON DELETE CASCADE
+);
+
+GRANT SELECT ON evik_platform.industry_pack TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.industry_pack FROM tenant_owner, template_engine, compliance_officer;
+
+
+------------------------------------------------------------------
+18) CREATE TABLE evik_platform.masking_metadata (
+    tenant_id        UUID NOT NULL,
+    table_name       TEXT NOT NULL,
+    column_name      TEXT NOT NULL,
+    masking_strategy TEXT,
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    created_by       UUID NOT NULL,
+    CONSTRAINT masking_metadata_pk PRIMARY KEY (tenant_id, table_name, column_name),
+    CONSTRAINT masking_metadata_masking_strategy_check
+        CHECK (masking_strategy = ANY (ARRAY['hash','partial','nullify','tokenize']))
+);
+
+GRANT SELECT ON evik_platform.masking_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.masking_metadata TO tenant_owner;
+
+
+ALTER TABLE evik_platform.masking_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.masking_metadata FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+1. Policy for Inserting Masking Metadata
+
+-- Tenant owners can insert masking metadata for their own tenant
+CREATE POLICY tenant_masking_insert
+ON evik_platform.masking_metadata
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = masking_metadata.tenant_id
+    )
+);
+
+2. Policy for Reading Masking Metadata
+
+-- Tenant owners and template_engine can select masking metadata for their own tenant
+CREATE POLICY tenant_masking_select
+ON evik_platform.masking_metadata
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = masking_metadata.tenant_id
+    )
+);
+
+
+----------------------------------------------------------------------------
+19) CREATE TABLE evik_platform.region_overlay (
+    id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    region_cluster                  TEXT NOT NULL,
+    default_residency_region        TEXT NOT NULL,
+    voice_retention_days_default    INTEGER NOT NULL,
+    chat_retention_days_default     INTEGER NOT NULL,
+    document_retention_days_default INTEGER NOT NULL,
+    channels_allowed                JSONB NOT NULL,
+    requires_recording_consent      BOOLEAN NOT NULL DEFAULT false,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT region_overlay_voice_retention_days_default_check
+        CHECK (voice_retention_days_default >= 0),
+    CONSTRAINT region_overlay_chat_retention_days_default_check
+        CHECK (chat_retention_days_default >= 0),
+    CONSTRAINT region_overlay_document_retention_days_default_check
+        CHECK (document_retention_days_default >= 0)
+);
+
+
+GRANT SELECT ON evik_platform.region_overlay TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.region_overlay FROM tenant_owner, template_engine, compliance_officer;
+
+
+---------------------------------------------------------------------------------------
+
+20) CREATE TABLE evik_platform.resource_metadata (
+    resource_id   UUID PRIMARY KEY,
+    tenant_id     UUID NOT NULL,
+    resource_type TEXT NOT NULL,
+    sensitivity   TEXT,
+    industry      TEXT,
+    country       VARCHAR(5),
+    created_by    UUID NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    tags          JSONB,
+    status        TEXT DEFAULT 'active',
+    CONSTRAINT resource_metadata_sensitivity_check
+        CHECK (sensitivity = ANY (ARRAY['public','internal','confidential','restricted'])),
+    CONSTRAINT resource_metadata_status_check
+        CHECK (status = ANY (ARRAY['active','archived','deleted'])),
+    CONSTRAINT resource_metadata_created_by_fkey
+        FOREIGN KEY (created_by)
+        REFERENCES evik_platform.user_account(id)
+);
+
+GRANT SELECT ON evik_platform.resource_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.resource_metadata TO tenant_owner;
+
+CREATE POLICY resource_metadata_tenant_policy
+ON evik_platform.resource_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+
+-----------------------------------------------------------------------------------------
+
+21) CREATE TABLE evik_platform.resources (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    resource_type TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    status      TEXT DEFAULT 'active',
+    created_by  UUID NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    updated_at  TIMESTAMPTZ DEFAULT now(),
+    version     INTEGER DEFAULT 1,
+    tags        JSONB,
+    CONSTRAINT resources_tenant_id_name_key UNIQUE (tenant_id, name),
+    CONSTRAINT resources_status_check
+        CHECK (status = ANY (ARRAY['active','archived','deleted'])),
+    CONSTRAINT resources_created_by_fkey
+        FOREIGN KEY (created_by)
+        REFERENCES evik_platform.user_account(id)
+);
+
+
+
+GRANT SELECT ON evik_platform.resources TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.resources TO tenant_owner;
+
+ALTER TABLE evik_platform.resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.resources FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY abac_resource_access
+ON evik_platform.resources
+FOR SELECT
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_metadata um
+        JOIN evik_platform.resource_metadata rm
+          ON rm.tenant_id = um.tenant_id
+        WHERE um.user_id::text = current_setting('evik.actor_id', true)
+          AND rm.resource_id = evik_platform.resources.id
+          AND um.country = rm.country
+          AND um.clearance IN ('high','medium')   -- clearance check
+          AND rm.sensitivity != 'restricted'      -- block restricted unless special role
+    )
+);
+
+----------------------------------------------------------------------------------------
+
+22) CREATE TABLE evik_platform.role_metadata (
+    role_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    role_name   TEXT NOT NULL,
+    description TEXT,
+    permissions JSONB,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL,
+    CONSTRAINT role_metadata_fk
+        FOREIGN KEY (tenant_id)
+        REFERENCES evik_platform.tenant_metadata(tenant_id)
+        ON DELETE CASCADE
+);
+
+-- Row Level Security
+GRANT SELECT ON evik_platform.role_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.role_metadata TO tenant_owner;
+
+ALTER TABLE evik_platform.role_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.role_metadata FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+-- Tenant owners and template_engine can read role metadata for their own tenant
+
+CREATE POLICY tenant_role_access
+ON evik_platform.role_metadata
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = role_metadata.tenant_id
+    )
+);
+
+2) 2. Policy for Inserting Role Metadata
+
+-- Tenant owners can insert role metadata for their own tenant
+CREATE POLICY tenant_role_insert
+ON evik_platform.role_metadata
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = role_metadata.tenant_id
+    )
+);
+
+---------------------------------------------------------------
+23) roles
+
+ CREATE TABLE evik_platform.roles (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT roles_name_key UNIQUE (name),
+    CONSTRAINT roles_name_check
+        CHECK (name = ANY (
+            ARRAY[
+                'superAdmin',
+                'tenantOwner',
+                'TenantAdmin',
+                'Agent',
+                'ComplianceOfficer',
+                'System'
+            ]
+        ))
+);
+
+REVOKE ALL ON evik_platform.roles FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.roles TO superadmin;
+
+
+--------------------------------------------------------------------------------------------
+
+24) 
+
+CREATE TABLE evik_platform.schema_migrations (
+    migration_id  uuid NOT NULL DEFAULT gen_random_uuid(),
+    name          text NOT NULL,
+    applied_at    timestamptz DEFAULT now(),
+    applied_by    uuid NOT NULL,
+    status        text DEFAULT 'applied',
+    rollback_sql  text,
+    CONSTRAINT schema_migrations_pkey PRIMARY KEY (migration_id)
+);
+
+
+REVOKE ALL ON evik_platform.schema_migrations FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.schema_migrations TO superadmin;
+
+
+-----------------------------------------------------------------------------------
+
+25) sector_registry - Registry of sectors (e.g., Finance, Healthcare, Manufacturing). Provides a structured classification of industries under each sector.
+
+CREATE TABLE evik_platform.sector_registry (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    code        text NOT NULL UNIQUE,
+    name        text NOT NULL,
+    description text,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    version     bigint NOT NULL DEFAULT 1,
+    is_active   boolean NOT NULL DEFAULT true,
+    global_id   uuid,
+    tenant_id   uuid NOT NULL
+);
+
+-- Indexes
+CREATE UNIQUE INDEX sector_registry_code_key
+    ON evik_platform.sector_registry (code);
+
+
+
+GRANT SELECT ON evik_platform.sector_registry TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.sector_registry TO tenant_owner;
+
+ALTER TABLE evik_platform.sector_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.sector_registry FORCE ROW LEVEL SECURITY;
+
+
+CREATE POLICY sector_registry_tenant_map_policy
+ON evik_platform.sector_registry
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+-- Sector Registry
+CREATE TRIGGER audit_sector_registry
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.sector_registry
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+----------------------------------------------------------------------------------
+26) snapshots
+
+CREATE TABLE evik_platform.snapshots (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id      UUID NOT NULL,
+    aggregate_id   UUID NOT NULL,
+    aggregate_type TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    snapshot_data  JSONB NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Row Level Security
+
+
+-- Policies
+-- Superadmin can read all snapshots
+CREATE POLICY superadmin_read_all_snapshots
+ON evik_platform.snapshots
+FOR SELECT
+TO superadmin
+USING (true);
+
+GRANT SELECT ON evik_platform.snapshots TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.snapshots TO tenant_owner;
+
+ALTER TABLE evik_platform.snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.snapshots FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY snapshots_tenant_map_policy
+ON evik_platform.snapshots
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+------------------------------------------------------------------
+
+27) template_audit
+
+CREATE TABLE evik_platform.template_audit (
+    audit_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID,
+    resource_type TEXT NOT NULL,
+    resource_id   UUID NOT NULL,
+    action        TEXT NOT NULL,
+    actor_id      UUID NOT NULL,
+    timestamp     TIMESTAMPTZ DEFAULT now()
+);
+
+GRANT SELECT ON evik_platform.template_audit TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_audit TO tenant_owner;
+
+ALTER TABLE evik_platform.template_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_audit FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY template_audit_tenant_map_policy
+ON evik_platform.template_audit
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+-----------------------------------------------------------------------------------------------------
+
+28) template_dependency_graph
+
+CREATE TABLE evik_platform.template_dependency_graph (
+    tenant_id             UUID NOT NULL,
+    source_template_id    UUID NOT NULL,
+    dependent_template_id UUID NOT NULL,
+    dependency_type       TEXT,
+    created_at            TIMESTAMPTZ DEFAULT now(),
+    created_by            UUID NOT NULL,
+    CONSTRAINT template_dependency_pk 
+        PRIMARY KEY (tenant_id, source_template_id, dependent_template_id),
+    CONSTRAINT template_dependency_graph_dependency_type_check
+        CHECK (dependency_type = ANY (ARRAY['uses','imports','references'])),
+    CONSTRAINT template_dependency_fk_source
+        FOREIGN KEY (tenant_id, source_template_id)
+        REFERENCES evik_platform.template_metadata(tenant_id, template_id)
+        ON DELETE CASCADE,
+    CONSTRAINT template_dependency_fk_dependent
+        FOREIGN KEY (tenant_id, dependent_template_id)
+        REFERENCES evik_platform.template_metadata(tenant_id, template_id)
+        ON DELETE CASCADE
+);
+
+-- Row Level Security
+
+GRANT SELECT ON evik_platform.template_dependency_graph TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_dependency_graph TO tenant_owner;
+
+ALTER TABLE evik_platform.template_dependency_graph ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_dependency_graph FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+
+
+-- Tenant owners can insert dependencies for their own tenant
+CREATE POLICY tenant_dependency_insert
+ON evik_platform.template_dependency_graph
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_dependency_graph.tenant_id
+    )
+);
+
+
+2. Policy for Reading Dependencies
+
+-- Tenant owners and template_engine can read dependencies for their own tenant
+CREATE POLICY tenant_dependency_select
+ON evik_platform.template_dependency_graph
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_dependency_graph.tenant_id
+    )
+);
+
+--------------------------------------------------------------------------------
+
+29) template_global
+
+CREATE TABLE evik_platform.template_global (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    template_key  TEXT NOT NULL,
+    version       INTEGER NOT NULL DEFAULT 1,
+    template_body JSONB NOT NULL,
+    is_active     BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT template_global_template_key_key UNIQUE (template_key)
+);
+
+GRANT SELECT ON evik_platform.template_global TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_global FROM tenant_owner, template_engine, compliance_officer;
+
+
+---------------------------------------------------------------------
+30) template_industry
+
+CREATE TABLE evik_platform.template_industry (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    industry_id  UUID NOT NULL,
+    template_key TEXT NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
+    overlay_body JSONB NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_template_industry UNIQUE (industry_id, template_key, version)
+);
+
+GRANT SELECT ON evik_platform.template_industry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.template_industry FROM tenant_owner, template_engine, compliance_officer;
+
+-------------------------------------------------------
+
+31) template_inheritance
+
+CREATE TABLE evik_platform.template_inheritance (
+    tenant_id          UUID NOT NULL,
+    parent_template_id UUID NOT NULL,
+    child_template_id  UUID NOT NULL,
+    inheritance_type   TEXT,
+    created_at         TIMESTAMPTZ DEFAULT now(),
+    created_by         UUID NOT NULL,
+    CONSTRAINT template_inheritance_pk 
+        PRIMARY KEY (tenant_id, parent_template_id, child_template_id),
+    CONSTRAINT template_inheritance_inheritance_type_check
+        CHECK (inheritance_type = ANY (ARRAY['extends','overrides'])),
+    CONSTRAINT template_inheritance_fk_parent
+        FOREIGN KEY (tenant_id, parent_template_id)
+        REFERENCES evik_platform.template_metadata(tenant_id, template_id)
+        ON DELETE CASCADE,
+    CONSTRAINT template_inheritance_fk_child
+        FOREIGN KEY (tenant_id, child_template_id)
+        REFERENCES evik_platform.template_metadata(tenant_id, template_id)
+        ON DELETE CASCADE
+);
+
+GRANT SELECT ON evik_platform.template_inheritance TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_inheritance TO tenant_owner;
+
+ALTER TABLE evik_platform.template_inheritance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_inheritance FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+-- Tenant owners can insert inheritance relationships for their own tenant
+CREATE POLICY tenant_inheritance_insert
+ON evik_platform.template_inheritance
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_inheritance.tenant_id
+    )
+);
+
+2. Policy for Reading Inheritance Relationships
+
+-- Tenant owners and template_engine can read inheritance relationships for their own tenant
+CREATE POLICY tenant_inheritance_select
+ON evik_platform.template_inheritance
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_inheritance.tenant_id
+    )
+);
+
+-----------------------------------------------------------------------------------------
+
+32) template_loader_state
+
+CREATE TABLE evik_platform.template_loader_state (
+    loader_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    template_id    UUID NOT NULL,
+    version_id     UUID NOT NULL,
+    tenant_id      UUID NOT NULL,
+    state          TEXT NOT NULL,
+    started_at     TIMESTAMPTZ DEFAULT now(),
+    completed_at   TIMESTAMPTZ,
+    failure_reason TEXT,
+    dsar_locked    BOOLEAN DEFAULT false
+);
+
+GRANT SELECT ON evik_platform.template_loader_state TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_loader_state TO tenant_owner;
+
+ALTER TABLE evik_platform.template_loader_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_loader_state FORCE ROW LEVEL SECURITY;
+
+-- Policies
+-- Superadmin can read all loader states
+CREATE POLICY superadmin_template_access
+ON evik_platform.template_loader_state
+FOR SELECT
+TO superadmin
+USING (true);
+
+1. Policy for Inserting Loader States
+
+-- Tenant owners can insert loader states for their own tenant
+CREATE POLICY tenant_template_insert
+ON evik_platform.template_loader_state
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_loader_state.tenant_id
+    )
+);
+
+2. Policy for Reading Loader States
+
+-- Tenant owners and template_engine can read loader states for their own tenant
+CREATE POLICY tenant_template_select
+ON evik_platform.template_loader_state
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_loader_state.tenant_id
+    )
+    OR template_loader_state.tenant_id IS NULL
+);
+
+
+
+
+-- Triggers
+-- Audit changes to template loader state
+CREATE TRIGGER audit_template_loader_state
+AFTER INSERT OR DELETE OR UPDATE
+ON evik_platform.template_loader_state
+FOR EACH ROW
+EXECUTE FUNCTION log_template_audit();
+
+-- Prevent updates or deletes (append-only behavior)
+CREATE TRIGGER template_loader_state_append_only
+BEFORE DELETE OR UPDATE
+ON evik_platform.template_loader_state
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete();
+
+-------------------------------------------------------------------------------------------------
+33) template_metadata
+
+CREATE TABLE evik_platform.template_metadata (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          UUID NOT NULL,
+    template_id        UUID NOT NULL,
+    version            INTEGER NOT NULL,
+    name               TEXT NOT NULL,
+    description        TEXT,
+    category           TEXT,
+    format             TEXT,
+    content            TEXT NOT NULL,
+    metadata           JSONB,
+    created_at         TIMESTAMPTZ DEFAULT now(),
+    created_by         UUID NOT NULL,
+    parent_template_id UUID,
+    inheritance_type   TEXT,
+    dependencies       JSONB,
+    CONSTRAINT unique_template_per_tenant UNIQUE (tenant_id, template_id),
+    CONSTRAINT template_metadata_format_check
+        CHECK (format = ANY (ARRAY['html','text','markdown','json'])),
+    CONSTRAINT template_metadata_inheritance_type_check
+        CHECK (inheritance_type = ANY (ARRAY['extends','overrides'])),
+    CONSTRAINT fk_parent_template
+        FOREIGN KEY (parent_template_id)
+        REFERENCES evik_platform.template_metadata(id)
+        ON DELETE SET NULL
+);
+
+GRANT SELECT ON evik_platform.template_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_metadata TO tenant_owner;
+
+ALTER TABLE evik_platform.template_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_metadata FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+
+1. Policy for Inserting Templates
+
+-- Tenant owners can insert templates for their own tenant
+CREATE POLICY tenant_template_insert
+ON evik_platform.template_metadata
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_metadata.tenant_id
+    )
+);
+
+2. Policy for Reading Templates
+
+-- Tenant owners and template_engine can read templates for their own tenant
+CREATE POLICY tenant_template_select
+ON evik_platform.template_metadata
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_metadata.tenant_id
+    )
+);
+
+-----------------------------------------------------------------------------------
+34) template_registry
+
+CREATE TABLE evik_platform.template_registry (
+    template_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID,
+    name        TEXT NOT NULL,
+    description TEXT,
+    dsar_locked BOOLEAN DEFAULT false,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT unique_template_name_per_tenant UNIQUE (tenant_id, name)
+);
+
+GRANT SELECT ON evik_platform.template_registry TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_registry TO tenant_owner;
+
+ALTER TABLE evik_platform.template_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_registry FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+1. Policy for Inserting Templates
+
+-- Tenant owners can insert templates for their own tenant
+CREATE POLICY tenant_template_insert
+ON evik_platform.template_registry
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_registry.tenant_id
+    )
+);
+
+2. Policy for Reading Templates
+
+-- Tenant owners and template_engine can read templates for their own tenant
+CREATE POLICY tenant_template_select
+ON evik_platform.template_registry
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_registry.tenant_id
+    )
+    OR template_registry.tenant_id IS NULL
+);
+
+
+
+-- Triggers
+-- Audit changes to template registry
+CREATE TRIGGER audit_template_registry
+AFTER INSERT OR DELETE OR UPDATE
+ON evik_platform.template_registry
+FOR EACH ROW
+EXECUTE FUNCTION log_template_audit();
+
+-- Prevent updates or deletes (append-only behavior)
+CREATE TRIGGER template_registry_append_only
+BEFORE DELETE OR UPDATE
+ON evik_platform.template_registry
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete();
+
+--------------------------------------------------------------------------------------
+35) template_tenant
+
+CREATE TABLE evik_platform.template_tenant (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id    UUID NOT NULL,
+    template_key TEXT NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 1,
+    overlay_body JSONB NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_template_tenant UNIQUE (tenant_id, template_key, version)
+);
+
+GRANT SELECT ON evik_platform.template_tenant TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_tenant TO tenant_owner;
+
+ALTER TABLE evik_platform.template_tenant ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_tenant FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+-- Tenants can read only their own templates
+CREATE POLICY tenant_read_own_templates
+ON evik_platform.template_tenant
+FOR SELECT
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_tenant.tenant_id
+    )
+);
+
+-------------------------------------------------------------------------
+36) template_version
+
+CREATE TABLE evik_platform.template_version (
+    version_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    template_id    UUID NOT NULL,
+    version_number INTEGER NOT NULL,
+    schema         JSONB NOT NULL,
+    status         TEXT DEFAULT 'active',
+    dsar_locked    BOOLEAN DEFAULT false,
+    created_at     TIMESTAMPTZ DEFAULT now(),
+    created_by     UUID NOT NULL,
+    tenant_id      UUID,
+    CONSTRAINT unique_version_per_template UNIQUE (template_id, version_number)
+);
+
+GRANT SELECT ON evik_platform.template_version TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.template_version TO tenant_owner;
+
+ALTER TABLE evik_platform.template_version ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_version FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+
+
+1. Policy for Inserting Template Versions
+
+-- Tenant owners can insert template versions for their own tenant
+CREATE POLICY tenant_template_insert
+ON evik_platform.template_version
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_version.tenant_id
+    )
+);
+
+2. Policy for Reading Template Versions
+
+-- Tenant owners and template_engine can read template versions for their tenant or global templates
+CREATE POLICY tenant_template_select
+ON evik_platform.template_version
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = template_version.tenant_id
+    )
+    OR template_version.tenant_id IS NULL
+);
+
+
+-- Triggers
+-- Audit changes to template versions
+CREATE TRIGGER audit_template_version
+AFTER INSERT OR DELETE OR UPDATE
+ON evik_platform.template_version
+FOR EACH ROW
+EXECUTE FUNCTION log_template_audit();
+
+-- Prevent updates or deletes (append-only behavior)
+CREATE TRIGGER template_version_append_only
+BEFORE DELETE OR UPDATE
+ON evik_platform.template_version
+FOR EACH ROW
+EXECUTE FUNCTION prevent_update_delete();
+
+------------------------------------------------------------------------------------------
+
+37) CREATE TABLE evik_platform.tenant_commands (
+    command_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id      UUID NOT NULL,
+    command_type   TEXT NOT NULL,
+    payload        JSONB NOT NULL,
+    version_number INTEGER NOT NULL,
+    issued_by      TEXT,
+    issued_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status         TEXT NOT NULL,
+    reason         TEXT,
+    error_code     TEXT,
+    CONSTRAINT tenant_commands_status_check
+        CHECK (status = ANY (ARRAY['accepted','rejected']))
+);
+
+GRANT SELECT ON evik_platform.tenant_commands TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenant_commands TO tenant_owner;
+
+ALTER TABLE evik_platform.tenant_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_commands FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+
+
+CREATE POLICY tenant_commands_tenant_policy
+ON evik_platform.tenant_commands
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+-----------------------------------------------------------------------------------------
+
+38) tenant_profile
+
+CREATE TABLE evik_platform.tenant_profile (
+    profile_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL,
+    industry_code TEXT,
+    country_code  TEXT,
+    language_code TEXT,
+    metadata      JSONB,
+    dsar_locked   BOOLEAN DEFAULT false,
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    updated_at    TIMESTAMPTZ DEFAULT now()
+);
+
+GRANT SELECT ON evik_platform.tenant_profile TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenant_profile TO tenant_owner;
+
+ALTER TABLE evik_platform.tenant_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_profile FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+1. Policy for Reading Tenant Profiles
+
+-- Tenant owners can read their own profiles
+CREATE POLICY tenant_profile_select
+ON evik_platform.tenant_profile
+FOR SELECT
+TO tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = tenant_profile.tenant_id
+    )
+);
+
+2. Policy for Inserting Tenant Profiles
+
+-- Tenant owners can insert profiles for their own tenant
+CREATE POLICY tenant_profile_write
+ON evik_platform.tenant_profile
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = tenant_profile.tenant_id
+    )
+);
+
+---------------------------------------------------------------------------
+39) tenant_registry
+
+CREATE TABLE evik_platform.tenant_registry (
+    tenant_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    status      TEXT DEFAULT 'active',
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    created_by  UUID NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT now(),
+    dsar_locked BOOLEAN DEFAULT false,
+    CONSTRAINT tenant_registry_code_key UNIQUE (code)
+);
+
+GRANT SELECT ON evik_platform.tenant_registry TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenant_registry TO tenant_owner;
+
+ALTER TABLE evik_platform.tenant_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_registry FORCE ROW LEVEL SECURITY;
+
+-- Policies
+-- Superadmin can read all tenant registry entries
+CREATE POLICY superadmin_registry_access
+ON evik_platform.tenant_registry
+FOR SELECT
+TO superadmin
+USING (true);
+
+-- Tenant owners can read only their own registry entry
+CREATE POLICY tenant_registry_select
+ON evik_platform.tenant_registry
+FOR SELECT
+TO tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = tenant_registry.tenant_id
+    )
+);
+
+--------------------------------------------------------------------
+
+40) 
+
+CREATE TABLE evik_platform.tenants (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_name           TEXT NOT NULL,
+    primary_contact_name  TEXT,
+    primary_contact_email TEXT UNIQUE,
+    country_code          VARCHAR(5),
+    region_cluster        TEXT,
+    default_language      VARCHAR(10),
+    time_zone             TEXT,
+    tier_enum             TEXT,
+    status_enum           TEXT,
+    industry_primary_id   UUID,
+    industry_id           UUID,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version               INTEGER NOT NULL DEFAULT 1,
+    valid_from            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    valid_to              TIMESTAMPTZ,
+    dsar_locked           BOOLEAN DEFAULT true,
+    CONSTRAINT tenants_status_enum_check
+        CHECK (status_enum = ANY (ARRAY['trial','active','canclled','suspended'])),
+    CONSTRAINT tenants_tier_enum_check
+        CHECK (tier_enum = ANY (ARRAY['free','standard','premium']))
+);
+
+ALTER TABLE evik_platform.tenants
+ADD COLUMN tenant_id uuid NOT NULL DEFAULT gen_random_uuid();
+
+
+
+CREATE POLICY tenants_map_policy
+ON evik_platform.tenants
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+GRANT SELECT ON evik_platform.tenants TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenants TO tenant_owner;
+
+ALTER TABLE evik_platform.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants FORCE ROW LEVEL SECURITY;
+
+
+-- Superadmin can read all tenant records
+CREATE POLICY tenants_global_admin_access
+ON evik_platform.tenants
+FOR SELECT
+TO superadmin
+USING (true);
+
+--------------------------------------------------------------------
+
+41) tenants_history
+
+1.1) CREATE TABLE evik_platform.tenants_history (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    version     INT NOT NULL,
+    data        JSONB NOT NULL,   -- snapshot of tenant row
+    changed_by  TEXT NOT NULL,    -- who made the change
+    changed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    action      TEXT CHECK (action IN ('INSERT','UPDATE','DELETE'))
+);
+
+GRANT SELECT ON evik_platform.tenants_history TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenants_history TO tenant_owner;
+
+ALTER TABLE evik_platform.tenants_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants_history FORCE ROW LEVEL SECURITY;
+
+
+
+-- Create a new tenant-aware policy
+
+CREATE POLICY tenants_history_tenant_policy
+ON evik_platform.tenants_history
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+
+
+CREATE OR REPLACE FUNCTION evik_platform.tenants_audit()
+RETURNS TRIGGER AS $$
+DECLARE
+    next_version INT;
+BEGIN
+    -- Determine next version number
+    SELECT COALESCE(MAX(version), 0) + 1
+    INTO next_version
+    FROM evik_platform.tenants_history
+    WHERE tenant_id = OLD.id;
+
+    -- Insert old record into history table
+    INSERT INTO evik_platform.tenants_history (tenant_id, version, data, changed_by, action)
+    VALUES (
+        OLD.id,
+        next_version,
+        to_jsonb(OLD),
+        current_user,
+        TG_OP
+    );
+
+    -- Update version in main table
+    NEW.version := next_version;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tenants_audit_trigger
+AFTER UPDATE OR DELETE ON evik_platform.tenants
+FOR EACH ROW
+EXECUTE FUNCTION evik_platform.tenants_audit();
+
+--------------------------------------------------------------------
+42) 
+
+CREATE TABLE evik_platform.user_account (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     UUID NOT NULL,
+    email         TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
+    phone         VARCHAR(20),
+    status        TEXT,
+    last_login_at TIMESTAMPTZ,
+    mfa_enabled   BOOLEAN NOT NULL DEFAULT false,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    dsar_locked   BOOLEAN DEFAULT true,
+    CONSTRAINT user_account_status_check
+        CHECK (status = ANY (ARRAY['active','inactive','suspended']))
+);
+
+GRANT SELECT ON evik_platform.user_account TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.user_account TO tenant_owner;
+
+ALTER TABLE evik_platform.user_account ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_account FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+-- Superadmin can read all accounts
+CREATE POLICY superadmin_read_all_accounts
+ON evik_platform.user_account
+FOR SELECT
+TO superadmin
+USING (true);
+
+-- Tenants can read only their own accounts
+CREATE POLICY tenant_read_own_accounts
+ON evik_platform.user_account
+FOR SELECT
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = user_account.tenant_id
+    )
+);
+
+
+
+-- Tenant owners and template_engine can read accounts for their tenant
+CREATE POLICY tenant_user_account_select
+ON evik_platform.user_account
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = user_account.tenant_id
+    )
+);
+
+CREATE POLICY user_account_tenant_policy
+ON evik_platform.user_account
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+-------------------------------------------------------------------------------------------
+43) user_metadata
+
+CREATE TABLE evik_platform.user_metadata (
+    user_id    UUID PRIMARY KEY,
+    tenant_id  UUID NOT NULL,
+    department TEXT,
+    clearance  TEXT,
+    country    VARCHAR(5),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT user_metadata_clearance_check
+        CHECK (clearance = ANY (ARRAY['low','medium','high'])),
+    CONSTRAINT user_metadata_user_id_fkey
+        FOREIGN KEY (user_id)
+        REFERENCES evik_platform.user_account(id)
+);
+
+GRANT SELECT ON evik_platform.user_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.user_metadata TO tenant_owner;
+
+ALTER TABLE evik_platform.user_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_metadata FORCE ROW LEVEL SECURITY;
+
+
+-- Policies
+
+
+CREATE POLICY user_metadata_tenant_policy
+ON evik_platform.user_metadata
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+------------------------------------------------------------------------
+44) user_role
+
+CREATE TABLE evik_platform.user_role (
+    user_id     UUID PRIMARY KEY,
+    tenant_id   UUID NOT NULL,
+    role_id     UUID NOT NULL,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+GRANT SELECT ON evik_platform.user_role TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.user_role TO tenant_owner;
+
+ALTER TABLE evik_platform.user_role ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+-- Tenants can read only their own roles
+
+CREATE POLICY user_role_tenant_read_own_roles
+ON evik_platform.user_role
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+
+----------------------------------------------------------------------------
+
+45) user_role_map
+
+CREATE TABLE evik_platform.user_role_map (
+    map_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID NOT NULL,
+    user_id     UUID NOT NULL,
+    role_id     UUID NOT NULL,
+    assigned_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT user_role_map_fk_role FOREIGN KEY (role_id)
+        REFERENCES evik_platform.role_metadata(role_id)
+        ON DELETE CASCADE,
+    CONSTRAINT user_role_map_fk_user FOREIGN KEY (user_id)
+        REFERENCES evik_platform.auth_user(user_id)
+        ON DELETE CASCADE
+);
+
+GRANT SELECT ON evik_platform.user_role_map TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.user_role_map TO tenant_owner;
+
+ALTER TABLE evik_platform.user_role_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role_map FORCE ROW LEVEL SECURITY;
+
+-- Policies
+
+
+1. Policy for Reading Role Mappings
+
+-- Tenant owners and template_engine can read role mappings for their tenant
+CREATE POLICY tenant_user_role_access
+ON evik_platform.user_role_map
+FOR SELECT
+TO template_engine, tenant_owner
+USING (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = user_role_map.tenant_id
+    )
+);
+
+
+2. Policy for Inserting Role Mappings
+
+-- Tenant owners can insert role mappings for their tenant
+CREATE POLICY tenant_user_role_insert
+ON evik_platform.user_role_map
+FOR INSERT
+TO tenant_owner
+WITH CHECK (
+    EXISTS (
+        SELECT 1
+        FROM evik_platform.user_tenant_map utm
+        WHERE utm.db_role = current_user
+          AND utm.tenant_id = user_role_map.tenant_id
+    )
+);
+
+-- Tenants can read only their own roles
+
+CREATE POLICY user_role_tenant_read_own_roles
+ON evik_platform.user_role
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+-------------------------------------------------------------------------------------
+46) user_tenant_map
+
+CREATE TABLE evik_platform.user_tenant_map (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    db_role     text NOT NULL,
+    tenant_id   uuid NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT unique_role UNIQUE (db_role),
+    CONSTRAINT unique_tenant UNIQUE (tenant_id)
+);
+
+-- Indexes
+CREATE INDEX idx_user_tenant_map_db_role ON evik_platform.user_tenant_map (db_role);
+
+GRANT SELECT ON evik_platform.user_tenant_map TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.user_tenant_map TO tenant_owner;
+
+ALTER TABLE evik_platform.user_tenant_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_tenant_map FORCE ROW LEVEL SECURITY;
+
+
+CREATE POLICY user_tenant_map_superadmin_select
+ON evik_platform.user_tenant_map
+FOR SELECT
+TO superadmin
+USING (true);
+
+
+CREATE POLICY user_tenant_map_role_select
+ON evik_platform.user_tenant_map
+FOR SELECT
+TO tenant_owner, template_engine, compliance_officer, tenant_user
+USING (db_role = current_user);
+
+
+---------------------------------------------------------
+47) global_registry - Stores platform‑wide global definitions (e.g., universal templates, governance standards).
+                      Acts as the root of the inheritance chain.
+
+CREATE TABLE evik_platform.global_registry (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        text NOT NULL UNIQUE,
+    name        text NOT NULL,
+    description text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+
+
+GRANT SELECT ON evik_platform.global_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.global_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+
+-- Global Registry
+CREATE TRIGGER audit_global_registry
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.global_registry
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+---------------------------------------------------------------------
+48)  industry_registry : Defines industries within each sector (e.g., Banking under Finance).
+                         Allows tenants to manage industry‑specific governance and compliance contexts.
+
+CREATE TABLE evik_platform.industry_registry (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    sector_id   uuid NOT NULL REFERENCES evik_platform.sector_registry(id) ON DELETE CASCADE,
+    code        text NOT NULL UNIQUE,
+    name        text NOT NULL,
+    description text,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+GRANT SELECT ON evik_platform.industry_registry TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.industry_registry FROM tenant_owner, template_engine, compliance_officer;
+
+
+-- Industry Registry
+CREATE TRIGGER audit_industry_registry
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.industry_registry
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+
+----------------------------------------------------------------------
+
+49) metadata_country - Stores country metadata (jurisdictional context).
+    Enables governance rules to adapt based on country regulations.
+
+CREATE TABLE evik_platform.metadata_country (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    iso_code    text NOT NULL UNIQUE,
+    name        text NOT NULL
+);
+
+GRANT SELECT ON evik_platform.metadata_country TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.metadata_country FROM tenant_owner, template_engine, compliance_officer;
+
+
+-- Metadata tables
+CREATE TRIGGER audit_metadata_country
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.metadata_country
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+-------------------------------------------------------------
+
+50) metadata_law :- Stores legal frameworks (e.g., GDPR, HIPAA, SOC2).
+                    Provides compliance overlays tied to industries/sectors.
+
+CREATE TABLE evik_platform.metadata_law (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    country_id  uuid NOT NULL REFERENCES evik_platform.metadata_country(id) ON DELETE CASCADE,
+    code        text NOT NULL,
+    description text
+);
+
+GRANT SELECT ON evik_platform.metadata_law TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.metadata_law FROM tenant_owner, template_engine, compliance_officer;
+
+
+CREATE TRIGGER audit_metadata_law
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.metadata_law
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+--------------------------------------------------------
+
+51) metadata_language :- Stores supported languages for localization. Ensures governance and compliance overlays can be localized per tenant/industry.
+
+CREATE TABLE evik_platform.metadata_language (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    iso_code    text NOT NULL UNIQUE,
+    name        text NOT NULL
+);
+
+GRANT SELECT ON evik_platform.metadata_language TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.metadata_language FROM tenant_owner, template_engine, compliance_officer;
+
+
+CREATE TRIGGER audit_metadata_language
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.metadata_language
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+-------------------------------------------------------
+52) industry_governance_context :- Links industry entries to governance rules, compliance overlays, and metadata (country, law, language).
+                                   Provides a unified governance context for each industry, combining inheritance and compliance metadata.
+
+CREATE TABLE evik_platform.industry_governance_context (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    industry_id uuid NOT NULL REFERENCES evik_platform.industry_registry(id) ON DELETE CASCADE,
+    country_id  uuid NOT NULL REFERENCES evik_platform.metadata_country(id),
+    law_id      uuid REFERENCES evik_platform.metadata_law(id),
+    language_id uuid REFERENCES evik_platform.metadata_language(id),
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+
+GRANT SELECT ON evik_platform.industry_governance_context TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.industry_governance_context FROM tenant_owner, template_engine, compliance_officer;
+
+
+
+-- Governance Context Mapping
+CREATE TRIGGER audit_industry_governance_context
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.industry_governance_context
+FOR EACH ROW EXECUTE FUNCTION evik_platform.command_audit_trigger();
+
+------------------------------------------------------------------
+
+command_audit integaration
+
+CREATE OR REPLACE FUNCTION evik_platform.command_audit_trigger()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_platform.command_audit (
+        tenant_id,
+        user_id,
+        command_text,
+        command_type,
+        version,
+        executed_at,
+        success
+    )
+    VALUES (
+        -- tenant context
+        (SELECT tenant_id FROM evik_platform.user_tenant_map WHERE db_role = current_user),
+        -- user context
+        (SELECT id FROM evik_platform.user_account WHERE db_role = current_user),
+        current_query(),   -- full SQL text executed
+        TG_OP,             -- INSERT / UPDATE / DELETE
+        COALESCE(NEW.version, 1), -- versioning if present
+        now(),
+        TRUE
+    );
+    RETURN NEW;
+END;
+$$;
+
+2. Attach Triggers to Governance Tables
+Attach the trigger to each table in the hierarchy and metadata:
+
+
+53) 
+
+CREATE TABLE evik_platform.tenant_metadata (
+    tenant_id  uuid PRIMARY KEY,
+    country    varchar(5),
+    industry   text,
+    tier       text CHECK (tier = ANY (ARRAY['free', 'standard', 'premium'])),
+    region     text,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- Indexes
+CREATE UNIQUE INDEX tenant_metadata_pkey
+    ON evik_platform.tenant_metadata (tenant_id);
+
+-- Foreign key references
+ALTER TABLE evik_platform.auth_user
+    ADD CONSTRAINT auth_user_fk
+    FOREIGN KEY (tenant_id)
+    REFERENCES evik_platform.tenant_metadata (tenant_id)
+    ON DELETE CASCADE;
+
+ALTER TABLE evik_platform.role_metadata
+    ADD CONSTRAINT role_metadata_fk
+    FOREIGN KEY (tenant_id)
+    REFERENCES evik_platform.tenant_metadata (tenant_id)
+    ON DELETE CASCADE;
+
+
+GRANT SELECT ON evik_platform.tenant_metadata TO superadmin;
+GRANT SELECT, INSERT ON evik_platform.tenant_metadata TO tenant_owner;
+
+ALTER TABLE evik_platform.tenant_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_metadata FORCE ROW LEVEL SECURITY;
+
+
+-- Create a new tenant-aware policy
+
+CREATE POLICY user_account_tenant_policy
+ON evik_platform.user_account
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
+-------------------------------------------------------------------------
+54) governance_version - Stores versioned governance states (e.g., rules, policies, enforcement models). Each governance change is 
+                         captured as a new version. Allows rollback, comparison, and traceability of governance evolution.
+
+CREATE TABLE evik_platform.governance_version (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    version_no    integer NOT NULL,
+    description   text,
+    created_by    uuid NOT NULL REFERENCES evik_platform.user_account(id),
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    status        text CHECK (status = ANY (ARRAY['draft','active','deprecated']))
+);
+
+REVOKE ALL ON evik_platform.governance_version FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.governance_version TO superadmin;
+
+
+----------------------------------------------------------------------------
+55) compliance_overlay - Stores compliance overlays (e.g., GDPR, HIPAA, SOC2) that apply on top of governance versions.
+                         Linked to governance versions to enforce jurisdiction‑specific or industry‑specific compliance rules.
+                         Allows overlays to persist alongside governance states.
+
+CREATE TABLE evik_platform.compliance_overlay (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    governance_id   uuid NOT NULL REFERENCES evik_platform.governance_version(id) ON DELETE CASCADE,
+    compliance_type text CHECK (compliance_type = ANY (ARRAY['GDPR','HIPAA','SOC2','ISO27001'])),
+    ruleset         jsonb NOT NULL,
+    created_by      uuid NOT NULL REFERENCES evik_platform.user_account(id),
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+REVOKE ALL ON evik_platform.compliance_overlay FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.compliance_overlay TO superadmin;
+
+-----------------------------------------------------------------------------------------
+
+56) governance_audit_log - Immutable audit trail for governance and compliance changes.
+                           Records who performed an action, when, and what was changed.
+						   Tracks both governance version updates and compliance overlay modifications.
+
+
+CREATE TABLE evik_platform.governance_audit_log (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    governance_id uuid REFERENCES evik_platform.governance_version(id),
+    overlay_id    uuid REFERENCES evik_platform.compliance_overlay(id),
+    action        text NOT NULL,
+    performed_by  uuid NOT NULL REFERENCES evik_platform.user_account(id),
+    performed_at  timestamptz NOT NULL DEFAULT now()
+);
+
+
+REVOKE ALL ON evik_platform.governance_audit_log FROM PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON evik_platform.governance_audit_log TO superadmin;
+
+
+---------------------------------------------------------------------------------------------
+
+57) risk_score - Stores quantitative and qualitative risk assessments linked to governance overrides. 
+                 Each override event gets a risk score (e.g., 0–100) with severity levels (low, medium, high, critical).
+
+
+CREATE TABLE evik_platform.risk_score (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    override_id   uuid NOT NULL REFERENCES evik_platform.override_tracking(id) ON DELETE CASCADE,
+    score         integer NOT NULL CHECK (score >= 0 AND score <= 100),
+    severity      text CHECK (severity = ANY (ARRAY['low','medium','high','critical'])),
+    category      text,
+    calculated_at timestamptz NOT NULL DEFAULT now(),
+    calculated_by uuid NOT NULL REFERENCES evik_platform.user_account(id)
+);
+
+GRANT SELECT ON evik_platform.risk_score TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.risk_score FROM tenant_owner, template_engine, compliance_officer;
+
+----------------------------------------------------------------------------------------
+
+58) override_tracking - Purpose: Records details of governance overrides. Captures what was overridden, why, by whom, and when.
+                        Links overrides to governance versions and compliance overlays.
+
+
+CREATE TABLE evik_platform.override_tracking (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    governance_id  uuid REFERENCES evik_platform.governance_version(id),
+    overlay_id     uuid REFERENCES evik_platform.compliance_overlay(id),
+    action         text NOT NULL,
+    reason         text,
+    performed_by   uuid NOT NULL REFERENCES evik_platform.user_account(id),
+    performed_at   timestamptz NOT NULL DEFAULT now(),
+    status         text CHECK (status = ANY (ARRAY['approved','rejected','pending']))
+);
+
+GRANT SELECT ON evik_platform.override_tracking TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.override_tracking FROM tenant_owner, template_engine, compliance_officer;
+
+-----------------------------------------------------------------------------------------------------------------
+
+59) override_audit_log - Immutable audit trail of override events and their associated risk scores.
+                      Logs actions like “override approved,” “risk score updated,” or “override rejected.”
+					  Append‑only — no updates or deletes allowed.
+
+
+CREATE TABLE evik_platform.override_audit_log (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    override_id   uuid NOT NULL REFERENCES evik_platform.override_tracking(id),
+    risk_id       uuid REFERENCES evik_platform.risk_score(id),
+    event         text NOT NULL,
+    event_time    timestamptz NOT NULL DEFAULT now(),
+    event_by      uuid NOT NULL REFERENCES evik_platform.user_account(id)
+);
+
+GRANT SELECT ON evik_platform.override_audit_log TO tenant_owner, template_engine, compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.override_audit_log FROM tenant_owner, template_engine, compliance_officer;
+
+-----------------------------------------------------------------------------------------------------------------
+
+60) CREATE TABLE evik_platform.user_sessions (
+    session_id   uuid                     NOT NULL DEFAULT gen_random_uuid(),
+    user_id      uuid                     NOT NULL,
+    tenant_id    uuid                     NOT NULL,
+    device_id    uuid,
+    issued_at    timestamp with time zone NOT NULL DEFAULT now(),
+    expires_at   timestamp with time zone NOT NULL,
+    revoked      boolean                  NOT NULL DEFAULT false,
+    ip_address   inet,
+    user_agent   text,
+    created_at   timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (session_id)
+);
+
+1) Revoke modification privileges from tenant roles:
+
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM compliance_officer;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM superadmin;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM tenant_user;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM tenant_owner;
+REVOKE INSERT, UPDATE, DELETE ON evik_platform.user_sessions FROM template_engine;
+
+
+2) Grant read‑only access to tenant roles:
+
+GRANT SELECT ON evik_platform.user_sessions TO tenant_user;
+GRANT SELECT ON evik_platform.user_sessions TO tenant_owner;
+
+
+3) Grant modification rights only to system roles:
+
+GRANT INSERT, UPDATE, DELETE ON evik_platform.user_sessions TO evik_admin;
+
+CREATE INDEX idx_user_sessions_user_id ON evik_platform.user_sessions (user_id);
+CREATE INDEX idx_user_sessions_tenant_id ON evik_platform.user_sessions (tenant_id);
+CREATE INDEX idx_user_sessions_revoked ON evik_platform.user_sessions (revoked);
+
+Step 1: Create Audit Trigger Function
+
+CREATE OR REPLACE FUNCTION evik_platform.audit_user_sessions()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_audit.audit_ledger (
+        tenant_id,
+        timestamp,
+        actor_id,
+        actor_role,
+        command_name,
+        resource_type,
+        resource_id,
+        summary,
+        severity,
+        metadata
+    )
+    VALUES (
+        COALESCE(NEW.tenant_id, OLD.tenant_id),
+        now(),
+        -- actor_id: map current_user to user_id if available
+        COALESCE(NEW.user_id, OLD.user_id),
+        current_user,
+        TG_OP,  -- command_name: INSERT / UPDATE / DELETE
+        'user_session',
+        COALESCE(NEW.session_id, OLD.session_id),
+        CASE
+            WHEN TG_OP = 'INSERT' THEN 'Session created'
+            WHEN TG_OP = 'UPDATE' AND NEW.revoked = true THEN 'Session revoked'
+            WHEN TG_OP = 'UPDATE' THEN 'Session updated'
+            WHEN TG_OP = 'DELETE' THEN 'Session deleted'
+        END,
+        'info',  -- severity: default to info, can be escalated if needed
+        CASE
+            WHEN TG_OP = 'INSERT' THEN row_to_json(NEW)::jsonb
+            WHEN TG_OP = 'UPDATE' THEN jsonb_build_object(
+                'old', row_to_json(OLD)::jsonb,
+                'new', row_to_json(NEW)::jsonb
+            )
+            WHEN TG_OP = 'DELETE' THEN row_to_json(OLD)::jsonb
+        END
+    );
+    RETURN NULL;
+END;
+$$;
+
+
+Step 2: Attach Trigger to user_sessions
+
+CREATE TRIGGER audit_user_sessions_trigger
+AFTER INSERT OR UPDATE OR DELETE ON evik_platform.user_sessions
+FOR EACH ROW
+EXECUTE FUNCTION evik_platform.audit_user_sessions();
+
+-----------------------------------------------------------------------------
+Evik_core schema
+
+ CRM Schemas + Audit Trails
+
+Table Structures. 
+
+1. CRM Core Tables
+Example entities you might need:
+
+CREATE TABLE evik_core.contacts (
+    contact_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           uuid NOT NULL,
+    core_first_name     text NOT NULL,
+    core_last_name      text NOT NULL,
+    core_email          text,
+    core_phone          text,
+    language_preference text,                          -- corrected spelling
+    industry_fields     jsonb,                         -- JSONB for flexible template-defined keys
+    tags                jsonb,                         -- JSONB array for tags
+    source              text CHECK (source IN ('voice','chat','web','import')), -- controlled values
+    dsar_locked         boolean DEFAULT false,
+    retention_expiry_at timestamptz,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE evik_core.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.contacts FORCE ROW LEVEL SECURITY;
+
+
+CREATE TABLE evik_core.interactions (
+    interaction_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          uuid NOT NULL,
+    contact_id         uuid,  -- nullable by default
+    interaction_type   text NOT NULL CHECK (interaction_type IN ('call','chat','email','meeting','review')),
+    channel            text CHECK (channel IN ('voice','sms','whatsapp','webchat','other')),
+    external_reference text,  -- e.g., call ID, message ID
+    actor_id           uuid NOT NULL,
+    summary            text,
+    sentiment          text CHECK (sentiment IN ('positive','negative','neutral')),
+    metadata           jsonb,
+    notes              text,
+    created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE evik_core.interactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.interactions FORCE ROW LEVEL SECURITY;
+
+-- First create enums for status and source
+CREATE TYPE lead_status AS ENUM ('open', 'won', 'lost', 'archived');
+CREATE TYPE lead_source AS ENUM ('voice', 'chat', 'campaign', 'referral');
+
+-- Now create the table
+CREATE TABLE evik_core.lead (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       uuid NOT NULL,
+    contact_id      uuid NOT NULL,
+    pipeline_id     uuid NOT NULL,
+    current_stage_id uuid NOT NULL,
+    score_numeric   integer,
+    status          lead_status NOT NULL DEFAULT 'open',
+    source          lead_source NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+
+Step 1: Enable Tenant Isolation
+Add tenant_id to all CRM tables.
+
+Define policies so tenant roles only see their own data.
+
+Step 2: Restrict Tenant Roles
+Tenant roles (tenant_user) → SELECT only.
+
+Service roles (crm_service_writer) → INSERT/UPDATE/DELETE with RLS enforcement.
+
+Step 3: Create Audit Trigger Function
+A reusable function for CRM tables:
+
+sql
+
+CREATE OR REPLACE FUNCTION evik_core.audit_core_activity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO evik_audit.audit_ledger (
+        tenant_id,
+        timestamp,
+        actor_id,
+        actor_role,
+        command_name,
+        resource_type,
+        resource_id,
+        summary,
+        severity,
+        metadata
+    )
+    VALUES (
+        COALESCE(NEW.tenant_id, OLD.tenant_id),
+        now(),
+        COALESCE(NEW.actor_id, OLD.actor_id),
+        current_user,
+        TG_OP,
+        TG_TABLE_NAME,  -- e.g. crm_contacts, crm_deals
+        COALESCE(NEW.contact_id, OLD.contact_id),
+        CASE
+            WHEN TG_OP = 'INSERT' THEN 'CRM record created'
+            WHEN TG_OP = 'UPDATE' THEN 'CRM record updated'
+            WHEN TG_OP = 'DELETE' THEN 'CRM record deleted'
+        END,
+        'info',
+        CASE
+            WHEN TG_OP = 'INSERT' THEN row_to_json(NEW)::jsonb
+            WHEN TG_OP = 'UPDATE' THEN jsonb_build_object('old', row_to_json(OLD)::jsonb, 'new', row_to_json(NEW)::jsonb)
+            WHEN TG_OP = 'DELETE' THEN row_to_json(OLD)::jsonb
+        END
+    );
+    RETURN NULL;
+END;
+$$;
+
+
+Step 4: Attach Triggers to CRM Tables
+
+CREATE TRIGGER audit_contacts
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.contacts
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+CREATE TRIGGER audit_interactions
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.interactions
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+CREATE TRIGGER audit_lead
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.lead
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+Booking Domain :- 
+
+CREATE TABLE evik_core.service_type (
+    id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id         uuid NOT NULL,
+    name              text NOT NULL,
+    description       text,
+    duration_minutes  integer NOT NULL CHECK (duration_minutes > 0),
+    category          text,
+    industry_tags     jsonb,
+    is_emergency      boolean NOT NULL DEFAULT false,
+    created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- First create enums for status and source
+CREATE TYPE appointment_status AS ENUM (
+    'scheduled', 'confirmed', 'complete', 'no_show', 'cancelled'
+);
+
+CREATE TYPE appointment_source AS ENUM (
+    'voice', 'chat', 'web', 'api'
+);
+
+CREATE TRIGGER audit_service_type
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.service_type
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+-- Now create the table
+CREATE TABLE evik_core.appointment (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id        uuid NOT NULL,
+    contact_id       uuid NOT NULL,
+    service_id       uuid NOT NULL,
+    provider_id      uuid NOT NULL,
+    location_id      uuid NOT NULL,
+    start_time       timestamptz NOT NULL,
+    end_time         timestamptz NOT NULL CHECK (end_time > start_time),
+    status           appointment_status NOT NULL DEFAULT 'scheduled',
+    source           appointment_source NOT NULL,
+    notes            text,
+    industry_context uuid REFERENCES evik_platform.industry(id),
+    created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER audit_appointment
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.appointment
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+Voice Domain :
+
+CREATE TABLE evik_core.voice_entry_point (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    phone_number text NOT NULL,
+    label text,
+    default_workflow_id uuid,
+    language text,
+    timezone text,
+    business_hours_profile_id uuid
+);
+
+CREATE TRIGGER audit_voice_entry_point
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.voice_entry_point
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+CREATE TABLE evik_core.call_session (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    entry_point_id uuid NOT NULL,
+    contact_id uuid NULL,
+    direction text NOT NULL CHECK (direction IN ('inbound','outbound')),
+    status text NOT NULL CHECK (status IN ('ringing','in_progress','completed','failed')),
+    started_at timestamptz NOT NULL DEFAULT now(),
+    ended_at timestamptz,
+    recording_reference text,       -- URI if recorded
+    transcript_reference text,      -- link to transcript store
+    sentiment_overall text,
+    metadata jsonb,
+    dsar jsonb                     -- DSAR requests/responses metadata
+);
+
+CREATE TRIGGER audit_call_session
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.call_session
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+
+5.4 chat domain
+
+CREATE TABLE evik_core.chat_channel (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    channel_type text NOT NULL CHECK (
+        channel_type IN ('webchat','whatsapp','facebook','instagram','telegram','sms')
+    ),
+    label text,
+    entry_workflow_id uuid,
+    persona_id uuid,
+    integration_config_id uuid
+);
+
+CREATE TRIGGER audit_chat_channel
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.chat_channel
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+CREATE TABLE evik_core.chat_session (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    channel_id uuid NOT NULL,
+    contact_id uuid NULL,
+    started_at timestamptz NOT NULL DEFAULT now(),
+    ended_at timestamptz,
+    status text NOT NULL CHECK (status IN ('in_progress','completed','failed'))
+);
+
+CREATE TRIGGER audit_chat_session
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.chat_session
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+CREATE TABLE evik_core.chat_message (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    direction text NOT NULL CHECK (direction IN ('inbound','outbound')),
+    sender_type text NOT NULL CHECK (sender_type IN ('contact','agent','ai')),
+    content text,                     -- message text or reference
+    metadata jsonb                  -- extensible metadata (attachments, flags, etc.)
+);
+
+CREATE TRIGGER audit_chat_message
+AFTER INSERT OR UPDATE OR DELETE ON evik_core.chat_message
+FOR EACH ROW EXECUTE FUNCTION evik_core.audit_core_activity();
+
+--------------------------------------------------------------------
+ALTER TABLE evik_platform.user_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_sessions FORCE ROW LEVEL SECURITY;
+
+GRANT SELECT ON evik_platform.user_sessions TO tenant_owner;
+GRANT SELECT ON evik_platform.user_sessions TO template_engine;
+GRANT SELECT ON evik_platform.user_sessions TO tenant_user; 
+GRANT SELECT ON evik_platform.user_sessions TO superadmin;
+
+
+CREATE POLICY user_sessions_tenant_policy
+ON evik_platform.user_sessions
+FOR ALL
+USING (
+    -- Row visibility: only rows belonging to the tenant mapped to current_user
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+)
+WITH CHECK (
+    -- Insert/Update restriction: new or modified rows must also belong to the same tenant
+    tenant_id = (
+        SELECT tenant_id
+        FROM evik_platform.user_tenant_map
+        WHERE db_role = current_user
+    )
+);
