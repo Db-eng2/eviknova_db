@@ -1,0 +1,214 @@
+CREATE OR REPLACE FUNCTION evik_core.cmd_compliance_create_and_evaluate_rule(
+    p_tenant_id        uuid,
+    p_actor_id         uuid,
+    p_actor_role       text,
+    p_rule_name        text,
+    p_rule_code        text,
+    p_scope_level      text,
+    p_rule_definition  jsonb,
+    p_priority         integer,
+    p_direction        text,
+    p_resource         text,
+    p_resource_id      uuid,
+    p_payload          jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+DECLARE
+    v_rule_id         uuid;
+    v_decision        text;
+    v_correlation_id  text;
+    v_rule_hash       text;
+BEGIN
+    ----------------------------------------------------------------
+    -- Single system-generated correlation_id
+    -- (Reviewer requirement: not externally passed)
+    ----------------------------------------------------------------
+    v_correlation_id :=
+        'corr-' || replace(gen_random_uuid()::text, '-', '');
+
+    ----------------------------------------------------------------
+    -- Rule hash
+    ----------------------------------------------------------------
+    v_rule_hash := md5(p_rule_definition::text);
+
+    ----------------------------------------------------------------
+    -- STEP 1: Create compliance rule
+    ----------------------------------------------------------------
+    INSERT INTO evik_core.compliance_rule (
+        id,
+        tenant_id,
+        rule_name,
+        rule_code,
+        scope_level,
+        rule_definition,
+        priority,
+        version,
+        rule_hash
+    )
+    VALUES (
+        gen_random_uuid(),
+        p_tenant_id,
+        p_rule_name,
+        p_rule_code,
+        p_scope_level,
+        p_rule_definition,
+        COALESCE(p_priority, 1),
+        1,
+        v_rule_hash
+    )
+    RETURNING id INTO v_rule_id;
+
+    ----------------------------------------------------------------
+    -- STEP 2: Evaluate rule
+    ----------------------------------------------------------------
+    IF COALESCE((p_payload ->> 'amount')::numeric, 0)
+       <= COALESCE((p_rule_definition ->> 'threshold')::numeric, 0)
+    THEN
+        v_decision := 'APPROVED';
+    ELSE
+        v_decision := 'REVIEW';
+    END IF;
+
+    ----------------------------------------------------------------
+    -- STEP 3: Event creation
+    ----------------------------------------------------------------
+    INSERT INTO evik_platform.events (
+        id,
+        tenant_id,
+        aggregate_id,
+        aggregate_type,
+        correlation_id,
+        event_type,
+        event_data,
+        version,
+        created_by,
+        sensitivity
+    )
+    VALUES (
+        gen_random_uuid(),
+        p_tenant_id,
+        v_rule_id,
+        'compliance_rule',
+        v_correlation_id,
+        'compliance.rule.executed',
+        jsonb_build_object(
+            'rule_id', v_rule_id,
+            'decision', v_decision,
+            'actor_id', p_actor_id
+        ),
+        1,
+        p_actor_id::text,
+        'public'
+    );
+
+    ----------------------------------------------------------------
+    -- STEP 4: Compliance execution (deterministic rule mapping)
+    ----------------------------------------------------------------
+    INSERT INTO evik_core.compliance_execution (
+        id,
+        tenant_id,
+        correlation_id,
+        command_name,
+        resource_type,
+        resource_id,
+        policy_result,
+        compliance_result,
+        decision,
+        executed_rules,
+        rule_id
+    )
+    VALUES (
+        gen_random_uuid(),
+        p_tenant_id,
+        v_correlation_id,
+        'cmd_compliance_create_and_evaluate_rule',
+        p_resource,
+        p_resource_id,
+        'ALLOW',
+        v_decision,
+        CASE
+            WHEN v_decision = 'APPROVED' THEN 'ALLOW'
+            ELSE 'DENY'
+        END,
+        jsonb_build_object(
+            'rule_id', v_rule_id,
+            'decision', v_decision,
+            'resource', p_resource,
+            'direction', p_direction
+        ),
+        v_rule_id
+    );
+
+    ----------------------------------------------------------------
+    -- STEP 5: Audit persistence (append-only)
+    ----------------------------------------------------------------
+    INSERT INTO evik_audit.audit_log (
+        audit_id,
+        command_name,
+        event_name,
+        actor,
+        tenant_id,
+        correlation_id,
+        policy_result,
+        compliance_result,
+        decision
+    )
+    VALUES (
+        gen_random_uuid(),
+        'cmd_compliance_create_and_evaluate_rule',
+        'compliance.rule.executed',
+        p_actor_id,
+        p_tenant_id,
+        v_correlation_id,
+        'ALLOW',
+        v_decision,
+        CASE
+            WHEN v_decision = 'APPROVED' THEN 'ALLOW'
+            ELSE 'DENY'
+        END
+    );
+
+    ----------------------------------------------------------------
+    -- STEP 6: Single deterministic native output
+    ----------------------------------------------------------------
+    RETURN jsonb_build_object(
+        'correlation_id', v_correlation_id,
+        'command_result', v_decision,
+
+        'rule', jsonb_build_object(
+            'rule_id', v_rule_id,
+            'rule_name', p_rule_name,
+            'rule_code', p_rule_code,
+            'scope_level', p_scope_level,
+            'priority', p_priority,
+            'rule_hash', v_rule_hash,
+            'rule_definition', p_rule_definition
+        ),
+
+        'event', jsonb_build_object(
+            'event_type', 'compliance.rule.executed',
+            'rule_id', v_rule_id,
+            'decision', v_decision
+        ),
+
+        'execution', jsonb_build_object(
+            'command_name', 'cmd_compliance_create_and_evaluate_rule',
+            'rule_id', v_rule_id,
+            'decision', v_decision
+        ),
+
+        'audit', jsonb_build_object(
+            'policy_result', 'ALLOW',
+            'compliance_result', v_decision,
+            'decision',
+                CASE
+                    WHEN v_decision = 'APPROVED' THEN 'ALLOW'
+                    ELSE 'DENY'
+                END
+        )
+    );
+END;
+$function$;
