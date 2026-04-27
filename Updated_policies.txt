@@ -1,0 +1,1050 @@
+-- Policy 1: tenant isolation with explicit non-null check
+
+1) evik_core.chat_message
+
+CREATE POLICY chat_message_tenant_isolation
+ON evik_core.chat_message
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+
+ALTER TABLE evik_core.chat_message ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_message FORCE ROW LEVEL SECURITY;
+
+
+----------------------------------------------------------------------------------------
+
+2) chat_session
+
+CREATE POLICY chat_session_tenant_isolation
+ON evik_core.chat_session
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.chat_session ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_session FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------------------------
+
+3) chat_channel
+
+CREATE POLICY chat_channel_tenant_isolation
+ON evik_core.chat_channel
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.chat_channel ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.chat_channel FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------------------------
+4) call_session
+
+CREATE POLICY call_session_tenant_isolation
+ON evik_core.call_session
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.call_session ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.call_session FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------
+
+5) contacts
+
+CREATE POLICY contacts_tenant_isolation
+ON evik_core.contacts
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.contacts FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------
+6) interactions
+
+CREATE POLICY interactions_tenant_isolation
+ON evik_core.interactions
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.interactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.interactions FORCE ROW LEVEL SECURITY;
+
+
+----------------------------------------------------------------
+7) lead
+
+CREATE POLICY lead_tenant_isolation
+ON evik_core.lead
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.lead ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.lead FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------------
+8) service_type
+
+CREATE POLICY service_type_tenant_isolation
+ON evik_core.service_type
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.service_type ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.service_type FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------
+9) appointment
+
+CREATE POLICY appointment_tenant_isolation
+ON evik_core.appointment
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.appointment ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.appointment FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------------
+10) voice_entry_point
+
+CREATE POLICY voice_entry_point_tenant_isolation
+ON evik_core.voice_entry_point
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+
+ALTER TABLE evik_core.voice_entry_point ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.voice_entry_point FORCE ROW LEVEL SECURITY;
+
+
+--------------------------------------------------------------------
+
+11) audit_ledger
+
+CREATE POLICY audit_ledger_tenant_isolation
+ON evik_audit.audit_ledger
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_audit.audit_ledger ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_audit.audit_ledger FORCE ROW LEVEL SECURITY;
+
+-----------------------------------------------------------------
+
+12) command_log
+
+CREATE POLICY command_log_tenant_isolation
+ON evik_platform.command_log
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.command_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.command_log FORCE ROW LEVEL SECURITY;
+
+-------------------------------------------------------------
+
+13) user_sessions
+
+CREATE POLICY user_sessions_tenant_isolation
+ON evik_platform.user_sessions
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_sessions FORCE ROW LEVEL SECURITY;
+
+-------------------------------------------------------
+14) workflow_states
+
+CREATE POLICY workflow_states_tenant_isolation
+ON evik_platform.workflow_states
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.workflow_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.workflow_states FORCE ROW LEVEL SECURITY;
+
+-------------------------------------------------------
+15) workflow_state_history
+
+CREATE POLICY workflow_state_history_tenant_isolation
+ON evik_platform.workflow_state_history
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.workflow_state_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.workflow_state_history FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------
+
+16) workflow_instance
+
+CREATE POLICY workflow_instance_tenant_isolation
+ON evik_platform.workflow_instance
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.workflow_instance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.workflow_instance FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------------
+17) tenant_profile
+
+CREATE POLICY tenant_profile_tenant_isolation
+ON evik_platform.tenant_profile
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenant_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_profile FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------
+18) tenant_registry
+
+CREATE POLICY tenant_registry_tenant_isolation
+ON evik_platform.tenant_registry
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenant_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_registry FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------------
+19) tenants
+
+CREATE POLICY tenants_tenant_isolation
+ON evik_platform.tenants
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------
+20) tenants_history
+
+CREATE POLICY tenants_history_tenant_isolation
+ON evik_platform.tenants_history
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenants_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenants_history FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------
+21) user_account
+
+CREATE POLICY user_account_tenant_isolation
+ON evik_platform.user_account
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_account ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_account FORCE ROW LEVEL SECURITY;
+
+
+--------------------------------------------------------------
+22) user_metadata
+
+CREATE POLICY user_metadata_tenant_isolation
+ON evik_platform.user_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_metadata FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------
+23) user_role
+
+CREATE POLICY user_role_tenant_isolation
+ON evik_platform.user_role
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_role ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------
+24) user_role_map
+
+CREATE POLICY user_role_map_tenant_isolation
+ON evik_platform.user_role_map
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_role_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_role_map FORCE ROW LEVEL SECURITY;
+
+-----------------------------------------------------------
+
+25) user_tenant_map
+
+CREATE POLICY user_tenant_map_tenant_isolation
+ON evik_platform.user_tenant_map
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.user_tenant_map ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.user_tenant_map FORCE ROW LEVEL SECURITY;
+
+-----------------------------------------------------------------------
+
+26) template_inheritance
+
+CREATE POLICY template_inheritance_tenant_isolation
+ON evik_platform.template_inheritance
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_inheritance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_inheritance FORCE ROW LEVEL SECURITY;
+
+-------------------------------------------------------------------
+
+27) template_loader_state
+
+CREATE POLICY template_loader_state_tenant_isolation
+ON evik_platform.template_loader_state
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_loader_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_loader_state FORCE ROW LEVEL SECURITY;
+
+-----------------------------------------------------------------
+
+28) template_metadata
+
+CREATE POLICY template_metadata_tenant_isolation
+ON evik_platform.template_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_metadata FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------------
+
+29) template_registry
+
+
+
+CREATE POLICY template_registry_tenant_isolation
+ON evik_platform.template_registry
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_registry FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------
+
+30) template_tenant
+
+CREATE POLICY template_tenant_tenant_isolation
+ON evik_platform.template_tenant
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_tenant ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_tenant FORCE ROW LEVEL SECURITY;
+
+
+--------------------------------------------------------------
+
+31) template_version
+
+CREATE POLICY template_version_tenant_isolation
+ON evik_platform.template_version
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_version ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_version FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------
+
+32) tenant_commands
+
+CREATE POLICY tenant_commands_tenant_isolation
+ON evik_platform.tenant_commands
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenant_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_commands FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------
+
+33) tenant_metadata
+
+CREATE POLICY tenant_metadata_tenant_isolation
+ON evik_platform.tenant_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.tenant_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.tenant_metadata FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------------------------
+
+34) sector_registry
+
+CREATE POLICY sector_registry_tenant_isolation
+ON evik_platform.sector_registry
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.sector_registry ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.sector_registry FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------------
+35) snapshots
+
+CREATE POLICY snapshots_tenant_isolation
+ON evik_platform.snapshots
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+
+ALTER TABLE evik_platform.snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.snapshots FORCE ROW LEVEL SECURITY;
+
+
+---------------------------------------------------------------------------
+36) template_audit
+
+CREATE POLICY template_audit_tenant_isolation
+ON evik_platform.template_audit
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+
+ALTER TABLE evik_platform.template_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_audit FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------------
+37) template_dependency_graph
+
+CREATE POLICY template_dependency_graph_tenant_isolation
+ON evik_platform.template_dependency_graph
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.template_dependency_graph ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.template_dependency_graph FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------------------
+38) resource_metadata
+
+CREATE POLICY resource_metadata_tenant_isolation
+ON evik_platform.resource_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.resource_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.resource_metadata FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------
+39) resources
+
+CREATE POLICY resources_tenant_isolation
+ON evik_platform.resources
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.resources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.resources FORCE ROW LEVEL SECURITY;
+
+----------------------------------------------------------------
+40) role_metadata
+
+CREATE POLICY role_metadata_tenant_isolation
+ON evik_platform.role_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.role_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.role_metadata FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------
+41) masking_metadata
+
+CREATE POLICY masking_metadata_tenant_isolation
+ON evik_platform.masking_metadata
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.masking_metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.masking_metadata FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------
+42) graph_edge
+
+CREATE POLICY graph_edge_tenant_isolation
+ON evik_platform.graph_edge
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.graph_edge ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_edge FORCE ROW LEVEL SECURITY;
+
+
+----------------------------------------------------------------
+43) graph_node
+
+CREATE POLICY graph_node_tenant_isolation
+ON evik_platform.graph_node
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.graph_node ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.graph_node FORCE ROW LEVEL SECURITY;
+
+---------------------------------------------------------------
+44) events
+
+CREATE POLICY events_tenant_isolation
+ON evik_platform.events
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.events FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------
+45) auth_user
+
+CREATE POLICY auth_user_tenant_isolation
+ON evik_platform.auth_user
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.auth_user ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.auth_user FORCE ROW LEVEL SECURITY;
+
+--------------------------------------------------------------------
+46) command_audit
+
+CREATE POLICY command_audit_tenant_isolation
+ON evik_platform.command_audit
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_platform.command_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_platform.command_audit FORCE ROW LEVEL SECURITY;
+
+------------------------------------------------------------------------------------------------
+
+47) evik_core.booking_event
+
+CREATE POLICY booking_event_tenant_isolation
+ON evik_core.booking_event
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.booking_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.booking_event FORCE ROW LEVEL SECURITY;
+
+48) evik_core.booking
+
+CREATE POLICY booking_tenant_isolation
+ON evik_core.booking
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.booking ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.booking FORCE ROW LEVEL SECURITY;
+
+49) evik_audit.booking_audit
+
+CREATE POLICY booking_audit_tenant_isolation
+ON evik_audit.booking_audit
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_audit.booking_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_audit.booking_audit FORCE ROW LEVEL SECURITY;
+
+50) evik_core.inbox_conversation
+
+CREATE POLICY inbox_conversation_tenant_isolation
+ON evik_core.inbox_conversation
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.inbox_conversation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.inbox_conversation FORCE ROW LEVEL SECURITY;
+
+51) evik_core.inbox_message
+
+CREATE POLICY inbox_message_tenant_isolation
+ON evik_core.inbox_message
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.inbox_message ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.inbox_message FORCE ROW LEVEL SECURITY;
+
+
+52) evik_core.inbox_routing_log
+
+CREATE POLICY inbox_routing_log_tenant_isolation
+ON evik_core.inbox_routing_log
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.inbox_routing_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.inbox_routing_log FORCE ROW LEVEL SECURITY;
+
+
+53) evik_core.inbox_assignment_log
+
+CREATE POLICY inbox_assignment_log_tenant_isolation
+ON evik_core.inbox_assignment_log
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.inbox_assignment_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.inbox_assignment_log FORCE ROW LEVEL SECURITY;
+
+54) evik_core.inbox_events
+
+CREATE POLICY inbox_events_tenant_isolation
+ON evik_core.inbox_events
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.inbox_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.inbox_events FORCE ROW LEVEL SECURITY;
+
+
+55) evik_core.compliance_rule
+
+CREATE POLICY compliance_rule_tenant_isolation
+ON evik_core.compliance_rule
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.compliance_rule ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.compliance_rule FORCE ROW LEVEL SECURITY;
+
+56) evik_core.compliance_execution
+
+CREATE POLICY compliance_execution_tenant_isolation
+ON evik_core.compliance_execution
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_core.compliance_execution ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_core.compliance_execution FORCE ROW LEVEL SECURITY;
+
+57) evik_audit.audit_log
+
+CREATE POLICY audit_log_tenant_isolation
+ON evik_audit.audit_log
+FOR ALL
+USING (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+)
+WITH CHECK (
+    tenant_id = evik_platform.get_tenant_context()
+    AND evik_platform.get_tenant_context() IS NOT NULL
+);
+
+ALTER TABLE evik_audit.audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evik_audit.audit_log FORCE ROW LEVEL SECURITY;
